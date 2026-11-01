@@ -7,6 +7,20 @@ const fs = require('fs');
 const FILE = process.env.RATINGS || 'ratings.json';
 let DB = {};
 try { DB = JSON.parse(fs.readFileSync(FILE, 'utf8')); } catch (e) {}
+const crypto = require('crypto');
+// Akun username + kata sandi: disimpan di accounts.json (ubah dengan env ACCOUNTS). Kata sandi di-hash (scrypt).
+const AFILE = process.env.ACCOUNTS || 'accounts.json';
+let AC = {};
+try { AC = JSON.parse(fs.readFileSync(AFILE, 'utf8')); } catch (e) {}
+const asave = () => { try { fs.writeFileSync(AFILE, JSON.stringify(AC)); } catch (e) {} };
+const hashPw = (pw, salt) => crypto.scryptSync(pw, salt, 32).toString('hex');
+const okUser = e => /^[a-z0-9_]{3,14}$/.test(e);
+const okSave = s => { try { return s && typeof s === 'object' && typeof s.lvl === 'number' && JSON.stringify(s).length < 30000 ? s : null; } catch (e) { return null; } };
+// Pemilik: username dicadangkan. Kata sandinya TIDAK ada di kode; isi lewat env OWNER_PW di hosting.
+// Akun pemilik membawa progres sendiri; semua akun baru lain mulai dari nol (0 emas, 0 diamond).
+const OWNER = 'razz';
+const FRESH = { lvl: 1, xp: 0, hp: 80, mp: 38, gold: 0, pots: 0, dia: 0, qi: 0, qc: 0, eq: 'biasa', gear: [], up: {}, sk: [], dinv: [], ti: [], best: 0 };
+const safeEq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
 const save = () => { try { fs.writeFileSync(FILE, JSON.stringify(DB)); } catch (e) {} };
 
 const MAXHP = 1000, MATCH_SEC = 150, MAXDMG = 600, MAXHEAL = 300;
@@ -45,10 +59,45 @@ class Hub {
       case 'cancel': this.q = this.q.filter(x => x !== p); break;
       case 'dmg': this.dmg(p, m.d); break;
       case 'heal': this.heal(p, m.d); break;
+      case 'reg': this.reg(p, m); break;
+      case 'login': this.login(p, m); break;
+      case 'tok': this.tok(p, m.tok); break;
+      case 'sv': { const a = p.acc && AC[p.acc], s = okSave(m.save); if (a && s && a.pid === p.id) { a.save = s; this.dirty = 1; } break; }
+      case 'logout': { const a = p.acc && AC[p.acc]; if (a) { a.tok = null; this.dirty = 1; } p.acc = null; break; }
       case 'lb': this.send(p, { t: 'lb', list: Object.values(DB).sort((a, b) => b.r - a.r).slice(0, 10).map(x => ({ n: x.n, r: x.r })) }); break;
     }
   }
 
+  fail(p, msg) { this.send(p, { t: 'acc', ok: 0, msg }); }
+  session(p, e, full) {
+    const a = AC[e]; a.tok = crypto.randomBytes(16).toString('hex'); p.acc = e; asave();
+    this.send(p, { t: 'acc', ok: 1, e, tok: a.tok, pid: a.pid, own: e === OWNER ? 1 : 0, save: full ? a.save : undefined });
+  }
+  reg(p, m) {
+    const e = String(m.e || '').trim().toLowerCase();
+    if (!okUser(e) || typeof m.pw !== 'string' || m.pw.length < 6 || m.pw.length > 64) return this.fail(p, 'Username (3-14 huruf kecil/angka/_) atau kata sandi (min. 6) tidak valid.');
+    if (AC[e]) return this.fail(p, 'Username sudah dipakai. Gunakan Masuk.');
+    if (e === OWNER && !(process.env.OWNER_PW && safeEq(m.pw, process.env.OWNER_PW))) return this.fail(p, 'Username ini dicadangkan.');
+    const salt = crypto.randomBytes(16).toString('hex');
+    AC[e] = { salt, hash: hashPw(m.pw, salt), pid: p.id, save: e === OWNER ? okSave(m.save) : Object.assign({}, FRESH), tok: null };
+    this.session(p, e, e !== OWNER);
+  }
+  login(p, m) {
+    const now = Date.now();
+    if ((p.lf || 0) >= 5 && now - p.lft < 60000) return this.fail(p, 'Terlalu banyak percobaan. Tunggu 1 menit.');
+    const e = String(m.e || '').trim().toLowerCase(), a = AC[e];
+    let ok = false;
+    if (a && typeof m.pw === 'string' && m.pw.length <= 64) {
+      const h = Buffer.from(hashPw(m.pw, a.salt), 'hex'), g = Buffer.from(a.hash, 'hex');
+      ok = h.length === g.length && crypto.timingSafeEqual(h, g);
+    }
+    if (!ok) { p.lf = (p.lf || 0) + 1; p.lft = now; return this.fail(p, 'Username atau kata sandi salah.'); }
+    p.lf = 0; this.session(p, e, true);
+  }
+  tok(p, t) {
+    if (typeof t !== 'string' || t.length < 10) return;
+    for (const e in AC) if (AC[e].tok === t) { p.acc = e; this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: AC[e].pid, own: e === OWNER ? 1 : 0 }); return; }
+  }
   queue(p) {
     if (p.m || this.q.includes(p)) return;
     p.qt = Date.now(); this.q.push(p); this.pair();
@@ -107,6 +156,7 @@ class Hub {
     this.send(b, { t: 'end', w: w ? w.id : null, r: this.rec(b).r, d: db, wins: this.rec(b).w, losses: this.rec(b).l });
   }
   tick() {
+    if (this.dirty) { asave(); this.dirty = 0; }
     this.pair();
     for (const mt of [...this.M]) {
       if (--mt.t > 0) continue;
@@ -135,7 +185,7 @@ if (require.main === module) {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(d);
     });
   });
-  const wss = new WebSocketServer({ server, maxPayload: 2048 });
+  const wss = new WebSocketServer({ server, maxPayload: 65536 });
   const hub = new Hub();
   setInterval(() => hub.tick(), 1000);
   wss.on('connection', ws => {
