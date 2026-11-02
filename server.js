@@ -1,8 +1,8 @@
 // Slayer Online - server (Node.js)
 // Fitur: chat global, kehadiran pemain, PvP bebas, RANKED 1v1 (Elo), akun + simpanan cloud, ekspor/impor data.
 // Jalankan:  npm i  &&  node server.js     (PORT bawaan 8080)
-// Penyimpanan: isi env DATABASE_URL (PostgreSQL) agar akun & progres PERMANEN.
-//   Tanpa DATABASE_URL data hanya di file JSON lokal, yang hilang saat redeploy/restart di hosting gratis.
+// Penyimpanan permanen: isi env GAS_URL + GAS_SECRET (Google Sheets via Apps Script, lihat Code.gs) atau DATABASE_URL (PostgreSQL).
+//   Tanpa itu data hanya di file JSON lokal, yang hilang saat redeploy/restart di hosting gratis.
 const fs = require('fs');
 const crypto = require('crypto');
 const { openStore } = require('./store');
@@ -16,26 +16,28 @@ let ST = null;
 const dirty = { acc: new Set(), rat: new Set(), meta: new Set() };
 const SRC = { acc: AC, rat: DB, meta: META };
 const mark = (kind, key) => dirty[kind].add(key);
-let flushing = null;
-async function runFlush() {
+let flushing = null, lastFlush = 0;
+async function runFlush(force) {
+  if (!force && ST.gap && Date.now() - lastFlush < ST.gap) return; // penyimpanan lambat (Apps Script): tulis rutin dijarangkan
   const items = [];
   for (const kind in dirty) {
     for (const key of dirty[kind]) if (SRC[kind][key] !== undefined) items.push([kind, key, SRC[kind][key]]);
     dirty[kind].clear();
   }
   if (!items.length) return;
+  lastFlush = Date.now();
   try { await ST.putMany(items); }
   catch (e) { console.error('Gagal menyimpan ke penyimpanan:', e.message); for (const [k, key] of items) dirty[k].add(key); }
 }
-function flush() {
+function flush(force) {
   if (flushing) return flushing;
-  const p = runFlush().finally(() => { if (flushing === p) flushing = null; });
+  const p = runFlush(force).finally(() => { if (flushing === p) flushing = null; });
   return (flushing = p);
 }
 // Tulis sekarang dan TUNGGU sampai benar-benar tersimpan (dipakai saat daftar/login/impor).
 async function persist(kind, key) {
   mark(kind, key);
-  for (let i = 0; i < 3 && dirty[kind].has(key); i++) await flush();
+  for (let i = 0; i < 3 && dirty[kind].has(key); i++) await flush(true);
   if (dirty[kind].has(key)) throw new Error('penyimpanan gagal');
 }
 
@@ -46,7 +48,7 @@ async function init(opts) {
   // Migrasi token lama (teks biasa) -> hash
   for (const e in AC) { const a = AC[e]; if (a.tok) { a.ths = (a.ths || []).concat(sha(a.tok)); delete a.tok; mark('acc', e); } }
   indexTokens();
-  await flush();
+  await flush(true);
   return ST;
 }
 
@@ -321,7 +323,7 @@ class Hub {
   }
   tick() {
     this.tc = (this.tc || 0) + 1;
-    if (this.tc % 3 === 0 && ST) flush().catch(() => {}); // simpan data yang berubah tiap ~3 detik
+    if (this.tc % 3 === 0 && ST) flush(false).catch(() => {}); // simpan data yang berubah tiap ~3 detik
     if (this.tc % 5 === 0) this.cnt();
     this.pair();
     for (const mt of [...this.M]) {
@@ -346,7 +348,7 @@ if (require.main === module) {
   const PORT = process.env.PORT || 8080;
   (async () => {
     await init();
-    console.log('Penyimpanan: ' + (ST.kind === 'postgres' ? 'PostgreSQL (permanen)' : 'FILE LOKAL (hilang saat redeploy di hosting gratis; set DATABASE_URL)') + ' | akun dimuat: ' + Object.keys(AC).length);
+    console.log('Penyimpanan: ' + ({ postgres: 'PostgreSQL (permanen)', gas: 'Google Sheets via Apps Script (permanen)', file: 'FILE LOKAL (hilang saat redeploy di hosting gratis; isi GAS_URL + GAS_SECRET)' })[ST.kind] + ' | akun dimuat: ' + Object.keys(AC).length);
     // Server yang sama menyajikan game (index.html) dan menerima koneksi WebSocket.
     const server = http.createServer((req, res) => {
       if (req.url === '/health') { res.end('ok ' + ST.kind); return; }
@@ -366,7 +368,7 @@ if (require.main === module) {
     });
     server.listen(PORT, () => console.log('Slayer Online siap di port ' + PORT));
     // Simpan semua yang tertunda sebelum proses berhenti (Render mengirim SIGTERM saat redeploy).
-    const stop = async () => { setTimeout(() => process.exit(1), 8000).unref(); try { await flush(); } catch (e) {} process.exit(0); };
+    const stop = async () => { setTimeout(() => process.exit(1), 8000).unref(); try { await flush(true); } catch (e) {} process.exit(0); };
     process.on('SIGTERM', stop); process.on('SIGINT', stop);
     process.on('unhandledRejection', e => console.error('unhandledRejection:', e));
   })().catch(e => { console.error('Gagal memulai server:', e); process.exit(1); });
