@@ -111,11 +111,11 @@ const FRESH = { lvl: 1, xp: 0, hp: 80, mp: 38, gold: 0, pots: 0, dia: 0, qi: 0, 
 // Akun pemilik membawa progres sendiri; semua akun baru lain mulai dari nol (0 emas, 0 diamond).
 const OWNER = 'razz';
 
-const MAXHP = 1000, MATCH_SEC = 150, MAXDMG = 600, MAXHEAL = 300;
+const MAXHP = 1000, SEC1 = 150, SEC2 = 180, MAXDMG = 600, MAXHEAL = 300;
 const FAILS = new Map(); // percobaan login gagal per username (di memori)
 
 class Hub {
-  constructor() { this.P = new Map(); this.q = []; this.M = new Set(); }
+  constructor() { this.P = new Map(); this.q = []; this.q2 = []; this.PT = new Map(); this.M = new Set(); }
   send(p, m) { if (p && p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify(m)); }
   all(m, except) { for (const p of this.P.values()) if (p !== except) this.send(p, m); }
   rec(p) { return DB[p.id] || (DB[p.id] = { n: p.n, r: 1000, w: 0, l: 0 }); }
@@ -135,24 +135,22 @@ class Hub {
     switch (m.t) {
       case 'join': { const r = this.rec(p); this.send(p, { t: 'me', r: r.r, w: r.w, l: r.l }); break; }
       case 'st': {
-        const o = p.m ? (p.m.a === p ? p.m.b : p.m.a) : null;
         p.inv = !!m.inv; p.invT = Date.now(); p.x = +m.x || 0; p.y = +m.y || 0;
-        const out = { t: 'st', id: p.id, x: +m.x || 0, y: +m.y || 0, f: m.f < 0 ? -1 : 1, n: p.n };
-        if (o) this.send(o, out);
-        else for (const q of this.P.values()) if (q !== p && !q.m) this.send(q, out);
+        const mt = p.m;
+        if (mt) { const out = { t: 'st', id: p.id, x: p.x, y: p.y, f: m.f < 0 ? -1 : 1, n: p.n }; for (const x of mt.ps) if (x !== p) this.send(x, out); }
         break;
       }
       case 'chat': this.all({ t: 'chat', n: p.n, msg: clean(m.msg, 80) }, p); break;
-      case 'hit': { const o = this.P.get(m.to); if (o && !p.m && !o.m) this.send(o, { t: 'hit', id: p.id, to: o.id, d: Math.min(60, Math.max(0, +m.d || 0)) }); break; }
-      case 'queue': this.queue(p); break;
+      case 'queue': this.queue(p, m.mode === 2 ? 2 : 1); break;
+      case 'party': this.party(p, m); break;
       case 'rdy': {
         const mt = p.m;
-        if (mt && !mt.go) { mt.rd.add(p.id); if (mt.rd.size >= 2) { mt.go = 1; mt.goAt = Date.now() + 3000; const g = { t: 'go', in: 3 }; this.send(mt.a, g); this.send(mt.b, g); } }
+        if (mt && !mt.go) { mt.rd.add(p.id); if (mt.rd.size >= mt.ps.length) { mt.go = 1; mt.goAt = Date.now() + 3000; const g = { t: 'go', in: 3 }; for (const x of mt.ps) this.send(x, g); } }
         break;
       }
-      case 'fx': { const o = p.m ? (p.m.a === p ? p.m.b : p.m.a) : null; if (o) this.send(o, { t: 'fx', k: m.k ? 1 : 0, w: clean(m.w, 12) }); break; }
-      case 'cancel': this.q = this.q.filter(x => x !== p); break;
-      case 'dmg': this.dmg(p, m.d); break;
+      case 'fx': { const mt = p.m; if (mt) for (const x of mt.ps) if (x !== p) this.send(x, { t: 'fx', id: p.id, k: m.k ? 1 : 0, w: clean(m.w, 12) }); break; }
+      case 'cancel': this.dequeue(p); break;
+      case 'dmg': this.dmg(p, m.d, m.to); break;
       case 'heal': this.heal(p, m.d); break;
       case 'reg': this.reg(p, m).catch(bad); break;
       case 'login': this.login(p, m).catch(bad); break;
@@ -174,7 +172,7 @@ class Hub {
     }
   }
 
-  cnt() { const m = { t: 'cnt', n: this.P.size, r: this.M.size * 2, q: this.q.length }; for (const p of this.P.values()) this.send(p, m); }
+  cnt() { let r = 0; for (const x of this.M) r += x.ps.length; const m = { t: 'cnt', n: this.P.size, r, q: this.q.length, q2: this.q2.reduce((a, t) => a + t.ps.length, 0) }; for (const p of this.P.values()) this.send(p, m); }
   // ----- Akun -----
   fail(p, msg, extra) { this.send(p, Object.assign({ t: 'acc', ok: 0, msg }, extra)); }
   // Buat token sesi, SIMPAN ke penyimpanan, baru kirim balasan sukses.
@@ -262,10 +260,48 @@ class Hub {
     this.send(p, { t: 'imp', ok: 1, save: s });
   }
 
-  // ----- Ranked -----
-  queue(p) {
-    if (p.m || this.q.includes(p)) return;
-    p.qt = Date.now(); this.q.push(p); this.pair();
+  // ----- Party 2v2: kode 4 karakter, maksimal 2 pemain -----
+  ptSend(pt) { const m = { t: 'pty', code: pt.code, ms: pt.ms.map(x => x.n) }; for (const x of pt.ms) this.send(x, m); }
+  ptLeave(p) {
+    const pt = p.pt; if (!pt) return;
+    this.dequeue(p);
+    p.pt = null; pt.ms = pt.ms.filter(x => x !== p);
+    if (!pt.ms.length) this.PT.delete(pt.code); else this.ptSend(pt);
+    this.send(p, { t: 'pty', code: null, ms: [] });
+  }
+  party(p, m) {
+    if (m.a === 'leave') return this.ptLeave(p);
+    if (p.m) return;
+    if (m.a === 'new') {
+      this.ptLeave(p);
+      const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let code;
+      do { code = ''; for (let i = 0; i < 4; i++) code += A[crypto.randomInt(A.length)]; } while (this.PT.has(code));
+      const pt = { code, ms: [p] }; this.PT.set(code, pt); p.pt = pt; this.ptSend(pt);
+    } else if (m.a === 'join') {
+      const pt = this.PT.get(String(m.code || '').trim().toUpperCase());
+      if (pt && pt.ms.includes(p)) return;
+      if (!pt || pt.ms.length >= 2) return this.send(p, { t: 'pty', err: 'Kode tidak ditemukan atau party penuh.', code: p.pt ? p.pt.code : null, ms: p.pt ? p.pt.ms.map(x => x.n) : [] });
+      this.ptLeave(p); pt.ms.push(p); p.pt = pt; this.ptSend(pt);
+    }
+  }
+
+  // ----- Antrean -----
+  inQ(p) { return this.q.includes(p) || this.q2.some(t => t.ps.includes(p)); }
+  dequeue(p) {
+    this.q = this.q.filter(x => x !== p);
+    const gone = this.q2.filter(t => t.ps.includes(p));
+    this.q2 = this.q2.filter(t => !t.ps.includes(p));
+    for (const t of gone) for (const x of t.ps) if (x !== p) this.send(x, { t: 'pcancel' });
+  }
+  queue(p, mode) {
+    if (p.m || this.inQ(p)) return;
+    if (mode === 2) {
+      let ps = [p];
+      if (p.pt && p.pt.ms.length === 2) { ps = p.pt.ms.slice(); if (ps.some(x => x.m || this.inQ(x))) return; }
+      this.q2.push({ ps, t: Date.now() });
+      for (const x of ps) if (x !== p) this.send(x, { t: 'pq' });
+      this.pair2();
+    } else { p.qt = Date.now(); this.q.push(p); this.pair(); }
   }
   pair() {
     const now = Date.now();
@@ -278,19 +314,63 @@ class Hub {
       }
       if (!best) return;
       this.q = this.q.filter(x => x !== best.a && x !== best.b);
-      this.start(best.a, best.b);
+      this.launch([best.a, best.b], 1);
     }
   }
-  start(a, b) {
-    const mt = { a, b, hp: { [a.id]: MAXHP, [b.id]: MAXHP }, t: MATCH_SEC, done: 0, go: 0, rd: new Set(), wt: 0 };
-    a.m = b.m = mt; this.M.add(mt);
-    this.send(a, { t: 'match', side: 0, opp: { id: b.id, n: b.n, r: this.rec(b).r } });
-    this.send(b, { t: 'match', side: 1, opp: { id: a.id, n: a.n, r: this.rec(a).r } });
+  // 2v2: tiket = 1 pemain solo atau 1 party (2 pemain). Susun total 4 pemain dengan selisih rating terkecil.
+  pair2() {
+    const now = Date.now();
+    for (let guard = 0; guard < 20; guard++) {
+      if (this.q2.reduce((a, t) => a + t.ps.length, 0) < 4) return;
+      const list = this.q2.slice(0, 12);
+      let pick = null;
+      for (const t0 of list) {
+        const win = 200 + (now - t0.t) / 1000 * 25, rest = list.filter(x => x !== t0);
+        let best = null;
+        const tryset = set => {
+          if (set.reduce((a, x) => a + x.ps.length, 0) !== 4) return;
+          const rs = []; for (const x of set) for (const y of x.ps) rs.push(this.rec(y).r);
+          const sp = Math.max(...rs) - Math.min(...rs);
+          if (sp <= win && (!best || sp < best.sp)) best = { set, sp };
+        };
+        for (let i = 0; i < rest.length; i++) {
+          tryset([t0, rest[i]]);
+          for (let j = i + 1; j < rest.length; j++) {
+            tryset([t0, rest[i], rest[j]]);
+            for (let k = j + 1; k < rest.length; k++) tryset([t0, rest[i], rest[j], rest[k]]);
+          }
+        }
+        if (best) { pick = best.set; break; }
+      }
+      if (!pick) return;
+      this.q2 = this.q2.filter(t => !pick.includes(t));
+      const pty = pick.filter(t => t.ps.length === 2), sol = pick.filter(t => t.ps.length === 1).map(t => t.ps[0]);
+      let A, B;
+      if (pty.length === 2) { A = pty[0].ps; B = pty[1].ps; }
+      else if (pty.length === 1) { A = pty[0].ps; B = sol; }
+      else { sol.sort((a, b) => this.rec(b).r - this.rec(a).r); A = [sol[0], sol[3]]; B = [sol[1], sol[2]]; } // terkuat + terlemah vs dua tengah
+      this.launch(A.concat(B), 2, [0, 0, 1, 1]);
+    }
+  }
+
+  // ----- Pertandingan (1v1 atau 2v2) -----
+  launch(ps, mode, teams) {
+    const tm = {}, slot = {}, n = [0, 0];
+    ps.forEach((x, i) => { const t = teams ? teams[i] : i; tm[x.id] = t; slot[x.id] = n[t]++; });
+    const mt = { ps, tm, slot, mode, hp: {}, t: mode === 2 ? SEC2 : SEC1, done: 0, go: 0, rd: new Set(), wt: 0 };
+    for (const x of ps) { mt.hp[x.id] = MAXHP; x.m = mt; x.db = null; x.dbt = 0; x.hl = 0; }
+    this.M.add(mt);
+    const info = x => ({ id: x.id, n: x.n, r: this.rec(x).r, side: tm[x.id], slot: slot[x.id] });
+    for (const x of ps) this.send(x, { t: 'match', mode, sec: mt.t, side: tm[x.id], slot: slot[x.id], ps: ps.filter(y => y !== x).map(y => Object.assign(info(y), { al: tm[y.id] === tm[x.id] ? 1 : 0 })) });
+    return mt;
   }
   bucket(p) { const now = Date.now(); p.tk = Math.min(8, p.tk + (now - p.tl) / 1000 * 8); p.tl = now; if (p.tk < 1) return false; p.tk--; return true; }
-  dmg(p, d) {
+  dmg(p, d, to) {
     const mt = p.m; if (!mt || mt.done || !mt.go || Date.now() < mt.goAt || !this.bucket(p)) return;
-    const o = mt.a === p ? mt.b : mt.a;
+    if (mt.hp[p.id] <= 0) return; // sudah gugur
+    const foes = mt.ps.filter(x => mt.tm[x.id] !== mt.tm[p.id] && mt.hp[x.id] > 0);
+    const o = to ? foes.find(x => x.id === to) : (foes.length === 1 ? foes[0] : null);
+    if (!o) return;
     if (Math.hypot((p.x || 0) - (o.x || 0), (p.y || 0) - (o.y || 0)) > 240) return; // di luar jangkauan
     if (o.inv && Date.now() - o.invT < 400) return; // lawan sedang dash (kebal)
     // anggaran damage: kapasitas 800, pulih 300/detik (batas wajar serangan normal + skill)
@@ -299,43 +379,49 @@ class Hub {
     d = Math.max(0, Math.min(MAXDMG, p.db, +d || 0)); p.db -= d;
     mt.hp[o.id] = Math.max(0, mt.hp[o.id] - d);
     this.hp(mt);
-    if (mt.hp[o.id] <= 0) this.end(mt, p);
+    if (!mt.ps.some(x => mt.tm[x.id] !== mt.tm[p.id] && mt.hp[x.id] > 0)) this.end(mt, mt.tm[p.id]);
   }
   heal(p, d) {
-    const mt = p.m, now = Date.now(); if (!mt || mt.done || !mt.go || now - p.hl < 2000) return;
+    const mt = p.m, now = Date.now(); if (!mt || mt.done || !mt.go || now - p.hl < 2000 || mt.hp[p.id] <= 0) return;
     p.hl = now; mt.hp[p.id] = Math.min(MAXHP, mt.hp[p.id] + Math.max(0, Math.min(MAXHEAL, +d || 0))); this.hp(mt);
   }
-  hp(mt) { const m = { t: 'hp', h: Object.assign({}, mt.hp) }; this.send(mt.a, m); this.send(mt.b, m); }
-  end(mt, w) {
+  hp(mt) { const m = { t: 'hp', h: Object.assign({}, mt.hp) }; for (const x of mt.ps) this.send(x, m); }
+  teamHp(mt, t) { let s = 0; for (const x of mt.ps) if (mt.tm[x.id] === t) s += mt.hp[x.id]; return s; }
+  // wt = tim pemenang (0/1), null = seri. Elo dihitung dari rata-rata rating tiap tim; rating dipakai bersama untuk 1v1 dan 2v2.
+  end(mt, wt) {
     if (mt.done) return; mt.done = 1; this.M.delete(mt);
-    const { a, b } = mt; a.m = b.m = null;
-    let da = 0, db = 0;
-    if (w) {
-      const l = w === a ? b : a, rw = this.rec(w), rl = this.rec(l);
-      const E = 1 / (1 + Math.pow(10, (rl.r - rw.r) / 400)), d = Math.max(1, Math.round(32 * (1 - E)));
-      const dl = Math.min(d, rl.r);
-      rw.r += d; rl.r -= dl; rw.w++; rl.l++;
-      if (w === a) { da = d; db = -dl; } else { db = d; da = -dl; }
-      mark('rat', w.id); mark('rat', l.id);
+    for (const x of mt.ps) x.m = null;
+    const delta = {};
+    if (wt === 0 || wt === 1) {
+      const W = mt.ps.filter(x => mt.tm[x.id] === wt), L = mt.ps.filter(x => mt.tm[x.id] !== wt);
+      const avg = t => t.reduce((a, x) => a + this.rec(x).r, 0) / t.length;
+      const E = 1 / (1 + Math.pow(10, (avg(L) - avg(W)) / 400)), d = Math.max(1, Math.round(32 * (1 - E)));
+      for (const x of W) { const r = this.rec(x); r.r += d; r.w++; delta[x.id] = d; mark('rat', x.id); }
+      for (const x of L) { const r = this.rec(x), dl = Math.min(d, r.r); r.r -= dl; r.l++; delta[x.id] = -dl; mark('rat', x.id); }
     }
-    this.send(a, { t: 'end', w: w ? w.id : null, r: this.rec(a).r, d: da, wins: this.rec(a).w, losses: this.rec(a).l });
-    this.send(b, { t: 'end', w: w ? w.id : null, r: this.rec(b).r, d: db, wins: this.rec(b).w, losses: this.rec(b).l });
+    const ws = (wt === 0 || wt === 1) ? mt.ps.filter(x => mt.tm[x.id] === wt).map(x => x.id) : [];
+    for (const x of mt.ps) { const r = this.rec(x); this.send(x, { t: 'end', mode: mt.mode, w: ws[0] || null, ws, r: r.r, d: delta[x.id] || 0, wins: r.w, losses: r.l }); }
   }
   tick() {
     this.tc = (this.tc || 0) + 1;
     if (this.tc % 3 === 0 && ST) flush(false).catch(() => {}); // simpan data yang berubah tiap ~3 detik
     if (this.tc % 5 === 0) this.cnt();
-    this.pair();
+    this.pair(); this.pair2();
     for (const mt of [...this.M]) {
       if (!mt.go) { if (++mt.wt > 20) this.end(mt, null); continue; }
       if (--mt.t > 0) continue;
-      const ha = mt.hp[mt.a.id], hb = mt.hp[mt.b.id];
-      this.end(mt, ha === hb ? null : ha > hb ? mt.a : mt.b);
+      const a = this.teamHp(mt, 0), b = this.teamHp(mt, 1);
+      this.end(mt, a === b ? null : a > b ? 0 : 1);
     }
   }
   close(p) {
-    this.q = this.q.filter(x => x !== p);
-    if (p.m) { const mt = p.m; this.end(mt, mt.a === p ? mt.b : mt.a); }
+    this.dequeue(p); this.ptLeave(p);
+    const mt = p.m;
+    if (mt && !mt.done) { // pemain putus: dianggap gugur; jika seluruh timnya gugur, tim lawan menang
+      mt.hp[p.id] = 0; mt.rd.add(p.id); p.m = null; this.hp(mt);
+      const t = mt.tm[p.id];
+      if (!mt.ps.some(x => mt.tm[x.id] === t && mt.hp[x.id] > 0)) this.end(mt, 1 - t);
+    }
     if (p.id && this.P.get(p.id) === p) { this.P.delete(p.id); this.all({ t: 'leave', id: p.id }); this.cnt(); }
   }
 }
