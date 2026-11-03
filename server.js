@@ -65,7 +65,8 @@ const NODB = 'Maaf! data akun tiada dalam database';
 const clean = (s, n) => String(s == null ? '' : s).replace(/[<>&]/g, '').slice(0, n);
 
 // ===== Validasi save: hanya kolom yang dikenal, nilai dibatasi =====
-const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void'];
+const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
+const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']);
 const int = (v, lo, hi, d) => { v = Math.floor(+v); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : (d === undefined ? lo : d); };
 const num = (v, lo, hi, d) => { v = +v; return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : (d === undefined ? lo : d); };
 const uniq = (a, ok) => Array.isArray(a) ? [...new Set(a.filter(x => ok.includes(x)))] : [];
@@ -77,7 +78,7 @@ function cleanSave(s, owner) {
     if (s.lvl < 1 || s.lvl > 300 || (+s.gold || 0) > 5e6 || (+s.dia || 0) > 1e5) return null;
     const gear = (Array.isArray(s.gear) ? s.gear : []).slice(0, 300).filter(g => g && typeof g === 'object').map(g => {
       const a = g.t === 'a';
-      return { t: a ? 'a' : 'b', n: clean(g.n, 24), v: int(g.v, 0, a ? 200 : 25) };
+      return { t: a ? 'a' : 'b', n: clean(g.n, 24), v: int(g.v, 0, a ? 600 : 120), c: int(g.c, 1, 9999, 1) };
     });
     const up = {};
     if (s.up && typeof s.up === 'object') for (const k of KAT) if (s.up[k] !== undefined) up[k] = int(s.up[k], 0, 10);
@@ -88,6 +89,7 @@ function cleanSave(s, owner) {
       qi: int(s.qi, 0, 50), qc: int(s.qc, 0, 99),
       eq: KAT.includes(s.eq) ? s.eq : 'biasa', gear, up, ea: idx(s.ea), eb: idx(s.eb),
       sk: uniq(s.sk, SKIN), skin: SKIN.includes(s.skin) ? s.skin : undefined,
+      ksk: uniq(s.ksk, KSKIDS), kse: (() => { const r = {}; if (s.kse && typeof s.kse === 'object') for (const w of KAT) { const v = s.kse[w]; if (typeof v === 'string' && KSKIDS.includes(v) && v.startsWith(w) && v.length === w.length + 1) r[w] = v; } return r; })(),
       dinv: uniq(s.dinv, KAT), best: int(s.best, 0, 200),
       ti: uniq(s.ti, TIT), title: TIT.includes(s.title) ? s.title : undefined,
       name: clean(s.name, 14) || undefined, rk: s.rk === undefined ? undefined : num(s.rk, 0, 5000, 1000),
