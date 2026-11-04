@@ -94,6 +94,9 @@ function cleanSave(s, owner) {
       ti: uniq(s.ti, TIT), title: TIT.includes(s.title) ? s.title : undefined,
       name: clean(s.name, 14) || undefined, rk: s.rk === undefined ? undefined : num(s.rk, 0, 5000, 1000),
       tb: owner ? int(s.tb, 0, 1) : 0, own: owner ? 1 : 0,
+      stp: int(s.stp, 0, 6, 0), end: int(s.end, 0, 7, 0), // progres Story
+      kh: (Array.isArray(s.kh) ? s.kh : []).slice(0, 6).map(v => int(v, -60, 60, 0)), kp: (Array.isArray(s.kp) ? s.kp : []).slice(0, 6).map(v => int(v, -60, 60, 0)), // skor dialog (penentu ending)
+      lend: int(s.lend, 0, 3, 0), // ending terakhir → reputasi Season 2 (1=A pahlawan gugur, 2=B pahlawan, 3=C pengkhianat)
     };
     return o;
   } catch (e) { return null; }
@@ -233,6 +236,7 @@ class Hub {
     const s = cleanSave(m.save, p.acc === OWNER);
     if (!s) { p.svt = now; return this.send(p, { t: 'svr', ok: 0, msg: 'Data ditolak server.' }); }
     const c = a.save;
+    if (c) { s.stp = Math.max(s.stp || 0, c.stp || 0); s.end = (s.end || 0) | (c.end || 0); } // progres Story tidak boleh mundur
     // Perlindungan: perangkat dengan data LEBIH LAMA tidak boleh menimpa progres cloud yang lebih maju.
     if (c && older(s, c)) return this.send(p, { t: 'svr', ok: 0, stale: 1, save: c });
     p.svt = now;
