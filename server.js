@@ -65,7 +65,17 @@ const NODB = 'Maaf! data akun tiada dalam database';
 const clean = (s, n) => String(s == null ? '' : s).replace(/[<>&]/g, '').slice(0, n);
 
 // ===== Validasi save: hanya kolom yang dikenal, nilai dibatasi =====
-const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
+// Event Hyperweb Spidey (limited 90 hari). Ubah EV.start bila event dimulai ulang.
+const EV = { start: Date.UTC(2026, 10, 4), days: 90, need: 30, test: false }; // misi: kalahkan 30 musuh di Classic (dihitung klien). test: true = Spidey sah tanpa misi (untuk uji).
+// ===== MAIL DARI DEV =====
+// Tambah entri di sini (atau isi env MAILS_JSON) lalu redeploy. Pemain melihatnya di tombol "Mail" di lobi.
+// Format: { id: 'unik-maks-24-huruf/angka/-/_', t: 'Judul', b: 'Isi', ts: Date.UTC(2027,0,1), exp: 0 (0 = tidak kedaluwarsa), gold: 0, dia: 0 }
+// Contoh pampasan bug:  { id: 'komp-bug1', t: 'Pampasan bug', b: 'Maaf atas gangguan kemarin.', ts: Date.UTC(2026,10,5), gold: 500, dia: 20 }
+const MAILS = (() => { let a = []; try { a = JSON.parse(process.env.MAILS_JSON || '[]'); } catch (e) {} return a.concat([
+  { id: 'open-world', t: 'Kabar dari Developer', b: '*Open world*_ akan hadir dalam kurun waktu terdekat, silakan menikmati gamenya._\n\n ~developer Slayer online~', ts: Date.UTC(2026, 10, 5, 12), gold: 0, dia: 0 },
+  { id: 'welcome', t: 'Selamat datang di Slayer Online!', b: 'Cek mail ini untuk kabar update, event, dan hadiah dari dev.', ts: Date.UTC(2026, 10, 5), gold: 0, dia: 0 },
+]); })();
+const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'tombak', 'kunai', 'spidey', 'punch', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
 const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']);
 const int = (v, lo, hi, d) => { v = Math.floor(+v); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : (d === undefined ? lo : d); };
 const num = (v, lo, hi, d) => { v = +v; return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : (d === undefined ? lo : d); };
@@ -83,20 +93,23 @@ function cleanSave(s, owner) {
     const up = {};
     if (s.up && typeof s.up === 'object') for (const k of KAT) if (s.up[k] !== undefined) up[k] = int(s.up[k], 0, 10);
     const idx = v => (Number.isInteger(v) && v >= 0 && v < gear.length) ? v : undefined;
+    const evk = int(s.evk, 0, EV.need), lgc = int(s.lg && s.lg.c, 0, 20); // login harian: One Punch hanya sah bila 20 hari terkumpul
+    const mlOk = Array.isArray(s.ml) ? s.ml.filter(x => typeof x === 'string' && /^[a-z0-9_-]{1,24}!?$/i.test(x)).slice(-80) : []; // kill Classic event; Spidey hanya sah bila misi selesai
     const o = {
       lvl: int(s.lvl, 1, 300), xp: num(s.xp, 0, 1e7), hp: num(s.hp, 0, 1e5, 80), mp: num(s.mp, 0, 1e4, 38),
       gold: int(s.gold, 0, 5e6), dia: int(s.dia, 0, 1e5), pots: int(s.pots, 0, 99999),
       qi: int(s.qi, 0, 50), qc: int(s.qc, 0, 99),
-      eq: KAT.includes(s.eq) ? s.eq : 'biasa', gear, up, ea: idx(s.ea), eb: idx(s.eb),
+      eq: KAT.includes(s.eq) && (s.eq !== 'spidey' || evk >= EV.need || EV.test) && (s.eq !== 'punch' || lgc >= 20) ? s.eq : 'biasa', evk, gear, up, ea: idx(s.ea), eb: idx(s.eb),
       sk: uniq(s.sk, SKIN), skin: SKIN.includes(s.skin) ? s.skin : undefined,
       ksk: uniq(s.ksk, KSKIDS), kse: (() => { const r = {}; if (s.kse && typeof s.kse === 'object') for (const w of KAT) { const v = s.kse[w]; if (typeof v === 'string' && KSKIDS.includes(v) && v.startsWith(w) && v.length === w.length + 1) r[w] = v; } return r; })(),
-      dinv: uniq(s.dinv, KAT), best: int(s.best, 0, 200),
+      dinv: uniq(s.dinv, KAT).filter(x => x !== 'spidey' || evk >= EV.need || EV.test).filter(x => x !== 'punch' || lgc >= 20), best: int(s.best, 0, 200),
       ti: uniq(s.ti, TIT), title: TIT.includes(s.title) ? s.title : undefined,
       name: clean(s.name, 14) || undefined, rk: s.rk === undefined ? undefined : num(s.rk, 0, 5000, 1000),
       tb: owner ? int(s.tb, 0, 1) : 0, own: owner ? 1 : 0,
       stp: int(s.stp, 0, 6, 0), end: int(s.end, 0, 7, 0), // progres Story
       kh: (Array.isArray(s.kh) ? s.kh : []).slice(0, 6).map(v => int(v, -60, 60, 0)), kp: (Array.isArray(s.kp) ? s.kp : []).slice(0, 6).map(v => int(v, -60, 60, 0)), // skor dialog (penentu ending)
-      lend: int(s.lend, 0, 3, 0), // ending terakhir → reputasi Season 2 (1=A pahlawan gugur, 2=B pahlawan, 3=C pengkhianat)
+      lend: int(s.lend, 0, 3, 0),
+      lg: { c: lgc, d: int(s.lg && s.lg.d, 0, 99999, 0) }, ml: mlOk, // login harian + mail yang sudah dibaca/diambil // ending terakhir → reputasi Season 2 (1=A pahlawan gugur, 2=B pahlawan, 3=C pengkhianat)
     };
     return o;
   } catch (e) { return null; }
@@ -154,6 +167,14 @@ class Hub {
         break;
       }
       case 'fx': { const mt = p.m; if (mt) for (const x of mt.ps) if (x !== p) this.send(x, { t: 'fx', id: p.id, k: m.k ? 1 : 0, w: clean(m.w, 12) }); break; }
+      case 'lift': { // efek terangkat (visual saja): diteruskan ke seisi pertandingan
+        const mt = p.m, n = Date.now();
+        if (mt && mt.go && n - (p.lvT || 0) > 40) {
+          p.lvT = n; const to = clean(m.to, 20);
+          if (mt.tm[to] !== undefined && mt.tm[to] !== mt.tm[p.id]) { const out = { t: 'lift', id: p.id, to, h: int(m.h, 0, 140, 0) }; for (const x of mt.ps) if (x !== p) this.send(x, out); }
+        }
+        break;
+      }
       case 'cancel': this.dequeue(p); break;
       case 'dmg': this.dmg(p, m.d, m.to); break;
       case 'heal': this.heal(p, m.d); break;
@@ -237,6 +258,8 @@ class Hub {
     if (!s) { p.svt = now; return this.send(p, { t: 'svr', ok: 0, msg: 'Data ditolak server.' }); }
     const c = a.save;
     if (c) { s.stp = Math.max(s.stp || 0, c.stp || 0); s.end = (s.end || 0) | (c.end || 0); } // progres Story tidak boleh mundur
+    // Login harian: maksimal +1 hari per klaim, hanya jika harinya lebih baru, tidak boleh mundur
+    if (c) { const a = c.lg || { c: 0, d: 0 }, b = s.lg || { c: 0, d: 0 }; s.lg = { c: Math.max(a.c, Math.min(b.c, a.c + (b.d > a.d ? 1 : 0))), d: Math.max(a.d, Math.min(b.d, Math.floor(Date.now() / 864e5) + 1)) }; }
     // Perlindungan: perangkat dengan data LEBIH LAMA tidak boleh menimpa progres cloud yang lebih maju.
     if (c && older(s, c)) return this.send(p, { t: 'svr', ok: 0, stale: 1, save: c });
     p.svt = now;
@@ -432,7 +455,102 @@ class Hub {
   }
 }
 
-module.exports = { Hub, DB, AC, init, flush, persist, cleanSave, sign, sha };
+
+// ===== LAPORAN / CADANGAN → email developer =====
+// Atur lewat environment variable (Render > Environment):
+//   REPORT_TO   alamat email developer penerima
+//   SMTP_HOST   mis. smtp.gmail.com     SMTP_PORT  465 (TLS) atau 587 (STARTTLS)
+//   SMTP_USER   akun SMTP               SMTP_PASS  kata sandi / App Password
+//   SMTP_FROM   (opsional) pengirim, default = SMTP_USER
+// Tanpa pengaturan itu laporan tetap disimpan di reports.jsonl dan dicetak di log server.
+const nettls = { net: require('net'), tls: require('tls') };
+function smtpSend(o) {
+  return new Promise((resolve, reject) => {
+    let sock = null, buf = '', cur = [], waiters = [], closed = false;
+    const timer = setTimeout(() => fail(new Error('smtp timeout')), 20000);
+    const fail = e => { if (closed) return; closed = true; clearTimeout(timer); try { sock && sock.destroy(); } catch (_) {} reject(e); };
+    const done = () => { if (closed) return; closed = true; clearTimeout(timer); try { sock.end(); } catch (_) {} resolve(); };
+    const pump = () => {
+      for (;;) {
+        const i = buf.indexOf('\r\n'); if (i < 0) return;
+        const line = buf.slice(0, i); buf = buf.slice(i + 2); cur.push(line);
+        if (/^\d{3}( |$)/.test(line)) { const r = cur; cur = []; const w = waiters.shift(); if (w) w(r); }
+      }
+    };
+    const attach = s => { sock = s; s.setEncoding('utf8'); s.on('data', d => { buf += d; pump(); }); s.on('error', fail); s.on('close', () => { if (!closed) fail(new Error('smtp closed')); }); };
+    const read = () => new Promise(r => waiters.push(r));
+    const cmd = async (c, ok) => {
+      if (c !== null) sock.write(c + '\r\n');
+      const r = await read(); const code = +r[r.length - 1].slice(0, 3);
+      if (ok && !ok.includes(code)) throw new Error('smtp ' + code + ' ' + r.join(' ').slice(0, 120));
+      return r;
+    };
+    (async () => {
+      const secure = o.port === 465;
+      await new Promise((res, rej) => {
+        const s = secure ? nettls.tls.connect({ host: o.host, port: o.port, servername: o.host }, res) : nettls.net.connect({ host: o.host, port: o.port }, res);
+        s.once('error', rej); attach(s);
+      });
+      await cmd(null, [220]);
+      let ex = await cmd('EHLO slayer-online', [250]);
+      if (!secure && !o.plain && ex.some(l => /STARTTLS/i.test(l))) {
+        await cmd('STARTTLS', [220]);
+        const old = sock; old.removeAllListeners('data'); old.removeAllListeners('close'); old.removeAllListeners('error');
+        await new Promise((res, rej) => { const t = nettls.tls.connect({ socket: old, servername: o.host }, res); t.once('error', rej); attach(t); });
+        buf = ''; cur = [];
+        ex = await cmd('EHLO slayer-online', [250]);
+      }
+      if (o.user) {
+        await cmd('AUTH LOGIN', [334]);
+        await cmd(Buffer.from(o.user).toString('base64'), [334]);
+        await cmd(Buffer.from(o.pass || '').toString('base64'), [235]);
+      }
+      await cmd('MAIL FROM:<' + o.from + '>', [250]);
+      await cmd('RCPT TO:<' + o.to + '>', [250, 251]);
+      await cmd('DATA', [354]);
+      const body = ['From: Slayer Online <' + o.from + '>', 'To: <' + o.to + '>', 'Subject: =?UTF-8?B?' + Buffer.from(o.subject).toString('base64') + '?=', 'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', Buffer.from(o.text).toString('base64').replace(/.{1,76}/g, '$&\r\n')].join('\r\n');
+      sock.write(body + '\r\n.\r\n'); await cmd(null, [250]);
+      try { sock.write('QUIT\r\n'); } catch (_) {}
+      done();
+    })().catch(fail);
+  });
+}
+const RP = { ip: new Map(), day: 0, n: 0 };
+const clip = (v, n) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').replace(/\r/g, '').trim().slice(0, n);
+function handleReport(req, res) {
+  const out = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(o)); };
+  let size = 0; const chunks = []; let dead = false;
+  req.on('data', c => { size += c.length; if (size > 4096) { dead = true; out(413, { ok: false, e: 'Laporan terlalu panjang.' }); req.destroy(); return; } chunks.push(c); });
+  req.on('end', async () => {
+    if (dead) return;
+    let j; try { j = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (e) { return out(400, { ok: false, e: 'Data tidak valid.' }); }
+    const k = ['bug', 'saran', 'lain'].includes(j.k) ? j.k : 'lain', t = clip(j.t, 500);
+    if (t.length < 10) return out(400, { ok: false, e: 'Tulis minimal 10 karakter.' });
+    const ip = String((req.headers['x-forwarded-for'] || '').split(',')[0] || req.socket.remoteAddress || '?').trim().slice(0, 64), now = Date.now(), day = Math.floor(now / 864e5);
+    if (RP.day !== day) { RP.day = day; RP.n = 0; RP.ip.clear(); }
+    const arr = (RP.ip.get(ip) || []).filter(x => now - x < 36e5);
+    if (arr.length >= 3 || RP.n >= 300) return out(429, { ok: false, e: 'Terlalu banyak laporan. Coba lagi nanti.' });
+    arr.push(now); RP.ip.set(ip, arr); RP.n++;
+    const label = { bug: 'Laporan bug', saran: 'Cadangan', lain: 'Lainnya' }[k], nm = clip(j.n, 14).replace(/[\r\n]/g, ' ') || 'Slayer';
+    const rec = { ts: new Date(now).toISOString(), k, n: nm, lv: Math.max(0, Math.min(999, j.lv | 0)), w: clip(j.w, 12), ip, t };
+    try { fs.appendFile(path.join(process.env.DATA_DIR || __dirname, 'reports.jsonl'), JSON.stringify(rec) + '\n', () => {}); } catch (e) {}
+    console.log('[LAPORAN]', JSON.stringify(rec));
+    const to = process.env.REPORT_TO, host = process.env.SMTP_HOST;
+    if (to && host) {
+      const user = process.env.SMTP_USER || '', port = +process.env.SMTP_PORT || 587;
+      try {
+        await smtpSend({ host, port, user, pass: process.env.SMTP_PASS || '', from: process.env.SMTP_FROM || user || to, to, plain: process.env.SMTP_PLAIN === '1',
+          subject: '[Slayer Online] ' + label + ' dari ' + nm, text: label + '\nDari: ' + nm + ' (Lv ' + rec.lv + ', senjata ' + (rec.w || '-') + ')\nWaktu: ' + rec.ts + '\nIP: ' + ip + '\n\n' + t + '\n' });
+      } catch (e) { console.error('Gagal kirim email laporan:', e.message); }
+    } else console.warn('REPORT_TO / SMTP_HOST belum diisi: laporan hanya disimpan di reports.jsonl dan log.');
+    out(200, { ok: true });
+  });
+}
+// Service worker minimal: dipakai untuk menampilkan notifikasi lokal (pengingat login harian) dan membuka game saat notifikasi diketuk.
+const SW_JS = `self.addEventListener('install',e=>self.skipWaiting());
+self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
+self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(l=>{for(const c of l){if('focus' in c)return c.focus()}return self.clients.openWindow('/')}))});`;
+module.exports = { Hub, DB, AC, init, flush, persist, cleanSave, sign, sha, SW_JS };
 
 if (require.main === module) {
   const http = require('http'), path = require('path');
@@ -444,6 +562,9 @@ if (require.main === module) {
     // Server yang sama menyajikan game (index.html) dan menerima koneksi WebSocket.
     const server = http.createServer((req, res) => {
       if (req.url === '/health') { res.end('ok ' + ST.kind); return; }
+      if (req.url.split('?')[0] === '/sw.js') { res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); res.end(SW_JS); return; }
+      if (req.method === 'POST' && req.url.split('?')[0] === '/report') { handleReport(req, res); return; }
+      if (req.url.split('?')[0] === '/mail.json') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(MAILS)); return; }
       fs.readFile(path.join(__dirname, 'index.html'), (e, d) => {
         if (e) { res.writeHead(404); res.end('index.html tidak ditemukan'); return; }
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(d);
