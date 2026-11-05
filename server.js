@@ -158,6 +158,7 @@ class Hub {
         if (mt) { const out = { t: 'st', id: p.id, x: p.x, y: p.y, f: m.f < 0 ? -1 : 1, n: p.n }; for (const x of mt.ps) if (x !== p) this.send(x, out); }
         break;
       }
+      case 'ping': this.send(p, { t: 'pong', ts: m.ts }); break;
       case 'chat': this.all({ t: 'chat', n: p.n, msg: clean(m.msg, 80) }, p); break;
       case 'queue': this.queue(p, m.mode === 2 ? 2 : 1); break;
       case 'party': this.party(p, m); break;
