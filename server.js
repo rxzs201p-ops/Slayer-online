@@ -155,7 +155,17 @@ class Hub {
       case 'st': {
         p.inv = !!m.inv; p.invT = Date.now(); p.x = +m.x || 0; p.y = +m.y || 0;
         const mt = p.m;
-        if (mt) { const out = { t: 'st', id: p.id, x: p.x, y: p.y, f: m.f < 0 ? -1 : 1, n: p.n }; for (const x of mt.ps) if (x !== p) this.send(x, out); }
+        if (mt) {
+          // tampilan: senjata, skin, skin katana, gerak, arah bidik, gelar (divalidasi whitelist; hanya visual)
+          const out = {
+            t: 'st', id: p.id, x: p.x, y: p.y, f: m.f < 0 ? -1 : 1, n: p.n,
+            e: KAT.includes(m.e) ? m.e : 'biasa', sk: SKIN.includes(m.sk) ? m.sk : '',
+            ks: KSKIDS.includes(m.ks) ? m.ks : '', tt: TIT.includes(m.tt) ? m.tt : '',
+            mv: m.mv ? 1 : 0, sw: m.sw ? 1 : 0, aa: num(m.aa, -4, 4, 0),
+            pd: Array.isArray(m.pd) ? [num(m.pd[0], -1, 1, 0), num(m.pd[1], -1, 1, 0)] : undefined // arah bidik One Punch saat charge
+          };
+          for (const x of mt.ps) if (x !== p) this.send(x, out);
+        }
         break;
       }
       case 'ping': this.send(p, { t: 'pong', ts: m.ts }); break;
@@ -167,7 +177,25 @@ class Hub {
         if (mt && !mt.go) { mt.rd.add(p.id); if (mt.rd.size >= mt.ps.length) { mt.go = 1; mt.goAt = Date.now() + 3000; const g = { t: 'go', in: 3 }; for (const x of mt.ps) this.send(x, g); } }
         break;
       }
-      case 'fx': { const mt = p.m; if (mt) for (const x of mt.ps) if (x !== p) this.send(x, { t: 'fx', id: p.id, k: m.k ? 1 : 0, w: clean(m.w, 12) }); break; }
+      case 'fx': { // efek serangan/skill (visual saja): jenis, indeks skill, arah bidik, charge, skin katana
+        const mt = p.m, n = Date.now();
+        if (mt && n - (p.fxT || 0) > 30) {
+          p.fxT = n;
+          const out = { t: 'fx', id: p.id, k: m.k ? 1 : 0, w: KAT.includes(m.w) ? m.w : 'biasa', i: int(m.i, -1, 9, -1), aa: num(m.aa, -4, 4, 0), f: m.f < 0 ? -1 : 1, ch: num(m.ch, 0, 1, 0), ks: KSKIDS.includes(m.ks) ? m.ks : '',
+            pn: Array.isArray(m.pn) ? [int(m.pn[0], 0, 1, 0), int(m.pn[1], 0, 1, 0), num(m.pn[2], -1, 1, 1), num(m.pn[3], -1, 1, 0), int(m.pn[4], 0, 1, 0)] : undefined }; // pn: kombo One Punch
+          for (const x of mt.ps) if (x !== p) this.send(x, out);
+        }
+        break;
+      }
+      case 'pu': { // One Punch skill (charge/lepas/batal) — visual saja
+        const mt = p.m, n = Date.now(), sg = ['c', 'r', 'x'].includes(m.s) ? m.s : null;
+        if (mt && sg && n - (p.puT || 0) > 20) {
+          p.puT = n;
+          const out = { t: 'pu', id: p.id, s: sg, dx: num(m.dx, -1, 1, 1), dy: num(m.dy, -1, 1, 0), k: num(m.k, 0, 1, 1), rsc: num(m.rsc, 0.5, 3, 2.35) };
+          for (const x of mt.ps) if (x !== p) this.send(x, out);
+        }
+        break;
+      }
       case 'lift': { // efek terangkat (visual saja): diteruskan ke seisi pertandingan
         const mt = p.m, n = Date.now();
         if (mt && mt.go && n - (p.lvT || 0) > 40) {
