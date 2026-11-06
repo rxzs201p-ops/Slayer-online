@@ -3136,7 +3136,7 @@ new MutationObserver(()=>{$('lob').classList.toggle('setopen',getComputedStyle($
 (()=>{
 const _net=net;
 net=function(o){
- if(o&&o.t==='st'){try{o.e=P.eq;o.sk=P.skin||'';o.ks=(P.kse||{})[P.eq]||'';o.mv=(P.mv&&!P.sw)?1:0;o.sw=P.sw?1:0;o.aa=+(P.aa||0).toFixed(2);o.tt=P.title||'';if(P.eq==='punch'&&PU.on&&PU.ph===0)o.pd=[+PU.dx.toFixed(2),+PU.dy.toFixed(2)]}catch(e){}return _net(o)}
+ if(o&&o.t==='st'){try{o.e=P.eq;o.sk=P.skin||'';o.ks=(P.kse||{})[P.eq]||'';o.mv=(P.mv&&!P.sw)?1:0;o.sw=P.sw?1:0;o.aa=+(P.aa||0).toFixed(2);o.tt=P.title||'';o.an=Math.floor(P.an||0);o.vy=P.vy?1:0;o.at=Math.max(0,Math.min(1,(P.atk||0)/.3));if(P.eq==='punch'&&PU.on&&PU.ph===0)o.pd=[+PU.dx.toFixed(2),+PU.dy.toFixed(2)]}catch(e){}return _net(o)}
  if(o&&o.t==='fx'){const ci=window.__rmCi;queueMicrotask(()=>{try{o.i=o.k&&ci!==undefined?ci:-1;o.aa=+(P.aa||0).toFixed(2);o.f=P.face<0?-1:1;o.ch=+(P.cgk||0).toFixed(2);o.ks=(P.kse||{})[o.w]||'';if(o.w==='punch'&&!o.k)o.pn=[PN.h,PN.hv,+PN.dx.toFixed(2),+PN.dy.toFixed(2),PN.hit?1:0]}catch(e){}_net(o)});return}
  return _net(o)};
 const _cs=cast;cast=function(i){window.__rmCi=i;try{return _cs.apply(this,arguments)}finally{window.__rmCi=undefined}};
@@ -3150,7 +3150,7 @@ onNet=function(m){
  try{
   if(!m||m.id===myId)return;
   const r=rem.find(x=>x.rid===m.id);if(!r)return;
-  if(m.t==='st'){r.e=m.e||'biasa';r.sk=m.sk||'';r.ks=m.ks||'';r.smv=m.mv;r.ssw=m.sw;r.tt=m.tt||'';if(r.hue===undefined)r.hue=[...m.id].reduce((a,c)=>a+c.charCodeAt(0),0)*37%360;if(!(r.atk>0))r.aa=+m.aa||0;if(m.pd&&r.pu&&r.pu.ph===0){r.pu.dx=m.pd[0];r.pu.dy=m.pd[1]}}
+  if(m.t==='st'){r.e=m.e||'biasa';r.sk=m.sk||'';r.ks=m.ks||'';r.smv=!!m.mv;r.ssw=!!m.sw;r.tt=m.tt||'';if(Number.isFinite(+m.an))r.an=+m.an;if(Number.isFinite(+m.vy))r.vyv=!!m.vy;if(!(r.atk>0)){r.aa=+m.aa||0;r.atk=(+m.at||0)*.3}if(r.hue===undefined)r.hue=[...m.id].reduce((a,c)=>a+c.charCodeAt(0),0)*37%360;if(m.pd&&r.pu&&r.pu.ph===0){r.pu.dx=m.pd[0];r.pu.dy=m.pd[1]}}
   else if(m.t==='fx')rmFx(r,m);else if(m.t==='pu')rmPu(r,m)}catch(e){if(!rmFx.w){rmFx.w=1;console.error('rm net',e)}}};
 
 // ---- helper ----
