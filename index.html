@@ -760,7 +760,7 @@ function rkStart(m){$('mq').style.display='none';if(D.on)dgExit();Rk.on=1;Rk.tr=
 function rkEnd(m){if(!Rk.on&&!m.off)return;$('cd').style.display='none';$('ov').style.display='none';Rk.fz=0;Rk.wait=0;const wl=m.ws||(m.w?[m.w]:[]),won=wl.includes(myId),dr=!wl.length,two=Rk.mode===2;Rk.on=0;Rk.tr=0;P.dead=0;if(m.r!==undefined)P.rk=m.r;run=0;document.body.classList.remove('rk');$('bX').style.display='none';$('mq').style.display='none';$('rs').style.display='flex';$('rq').textContent='Cari lawan lagi';$('rst').innerHTML=(m.off?'Koneksi terputus':dr?'SERI':won?'<span style="color:#8f8">MENANG</span>':'<span style="color:#f88">KALAH</span>')+'<br><small>'+(two?'Ranked 2v2 · ':'')+(m.d!==undefined?'Rating '+m.r+' ('+(m.d>=0?'+':'')+m.d+') · '+tier(m.r)+' · '+(m.wins||0)+'M/'+(m.losses||0)+'K':'')+'</small>';sfx(won?'lv':'hurt')}
 function showLb(l){const p=$('lbp');p.style.display='block';p.innerHTML='<b>🏆 Peringkat</b>'+l.map((x,i)=>`<div>${i+1}. ${esc(x.n)} — ${x.r} (${tier(x.r)}) ${x.w||0}M/${x.l||0}K</div>`).join('')+'<br><button id="lbx">Tutup</button>';$('lbx').onclick=()=>p.style.display='none'}
 function connect(){if(ws&&ws.readyState<2)return;noRc=0;const u=($('su').value.trim()||SERVER_URL);if(!u){chat('Server belum terhubung. Buka game lewat alamat Render (onrender.com).','#f88');return}try{ws=new WebSocket(u);ws.onopen=()=>{rcN=0;CL.ic=ls('slayer_tok')?'☁…':'';chat('Terhubung ke server.','#8f8');net({t:'join',n:P.name||'Slayer'});const tk=ls('slayer_tok');if(tk)net({t:'tok',tok:tk})};ws.onmessage=e=>{let m;try{m=JSON.parse(e.data)}catch(x){return}onNet(m)};ws.onclose=()=>{ws=null;CL.ic=ls('slayer_tok')?'☁✕':'';if(!(Rk.on&&Rk.tr))rem.length=0;chat('Terputus dari server.','#f88');if((Rk.on&&!Rk.tr)||$('mq').style.display==='flex')rkEnd({w:null,off:1});rcSched()};ws.onerror=()=>{}}catch(e){chat('Gagal terhubung ke server.','#f88')}}
-function onNet(m){if(m&&m.t==='pong'){pingIn(m.ts);return}if(!m||m.id===myId)return;if(m.t==='st'){if(!Rk.on||Rk.tr)return;let r=rem.find(x=>x.rid===m.id);if(!r){const h=[...m.id].reduce((a,c)=>a+c.charCodeAt(0),0)*37%360;r={rid:m.id,pl:1,hp:1000,sp:mk(SP.W0,h),sw:mk(SP.SW,h)};rem.push(r)}if(r.x===undefined){r.x=m.x;r.y=m.y}r.tx=m.x;r.ty=m.y;r.f=m.f;r.n=m.n||'Pemain';if(!r.dead&&!Rk.on)r.hp=m.hp}
+function onNet(m){if(m&&m.t==='pong'){pingIn(m.ts);return}if(!m||m.id===myId)return;if(m.t==='st'){if(!Rk.on||Rk.tr)return;let r=rem.find(x=>x.rid===m.id);if(!r){const h=[...m.id].reduce((a,c)=>a+c.charCodeAt(0),0)*37%360;r={rid:m.id,pl:1,hp:1000,sp:mk(SP.W0,h),sw:mk(SP.SW,h)};rem.push(r)}if(r.x===undefined){r.x=m.x;r.y=m.y}r.tx=m.x;r.ty=m.y;r.f=m.f;r.n=m.n||'Pemain';r.e=m.e||'biasa';r.sk=m.sk||'';r.ks=m.ks||'';r.tt=m.tt||'';r.smv=!!m.mv;r.ssw=!!m.sw;r.aa=+m.aa||0;r.an=+m.an||0;r.atk=+m.at||0;r.vy=!!m.vy;if(!r.dead&&!Rk.on)r.hp=m.hp}
  else if(m.t==='cnt'){onl=m.n;$('lon').textContent='🟢 '+m.n+' online';if($('mq').style.display==='flex')$('mqt').textContent=qMode===2?'🔍 Mencari 4 pemain… ('+m.q2+' mengantre)':'🔍 Mencari lawan… ('+m.q+' dalam antrean)'}
  else if(m.t==='go'){Rk.wait=0;Rk.fz=m.in||3}
  else if(m.t==='fx'){const r=rem.find(x=>x.rid===m.id),w=WP.find(x=>x.id===m.w)||WP[0];if(!r)return;r.atk=.3;for(let i=0;i<(m.k?14:5);i++)pt.push({x:r.x+(r.f||1)*8,y:r.y,vx:(Math.random()-.5)*90,vy:(Math.random()-.5)*90,t:.5,s:2,c:w.c});if(m.k)shk=Math.max(shk,.12)}
@@ -906,7 +906,7 @@ function step(now){requestAnimationFrame(step);let dt=Math.min(.05,(now-last)/10
  aiStep(dt);trCheck();
  for(const r of rem){r.atk=(r.atk||0)-dt;if(r.tx!==undefined){r.x+=(r.tx-r.x)*Math.min(1,dt*12);r.y+=(r.ty-r.y)*Math.min(1,dt*12)}}
  if(Rk.on&&Rk.fz>0){if(!Rk.wait)Rk.fz-=dt;const c=$('cd');c.style.display='block';c.textContent=Rk.wait?'Menunggu lawan…':Rk.fz>0?Math.ceil(Rk.fz):'';if(!Rk.wait&&Rk.fz<=0){c.textContent='FIGHT!';setTimeout(()=>{c.style.display='none'},700)}}
- netT-=dt;if(netT<=0){netT=.1;if(Rk.on&&!Rk.tr)net({t:'st',x:P.x,y:P.y,f:P.face,n:P.name||'Slayer',inv:P.dh>0?1:0})}
+ netT-=dt;if(netT<=0){netT=.1;if(Rk.on&&!Rk.tr)net({t:'st',x:P.x,y:P.y,f:P.face,n:P.name||'Slayer',inv:P.dh>0?1:0,e:P.eq,sk:P.skin||'',ks:(P.kse&&P.kse[P.eq])||'',tt:P.title||'',mv:P.mv?1:0,sw:P.sw?1:0,aa:P.aa||0,an:P.an||0,vy:P.vy?1:0,at:P.atk>0?Math.max(0,Math.min(1,P.atk/.3)):0})}
  // HUD
  $('lv').textContent='Lv '+P.lvl;$('gd').textContent=CL.ic;$('eco').innerHTML='🪙 '+P.gold+'<br>💎 '+P.dia+'<br>🟢 '+onl;$('hp').style.width=P.hp/mhp()*100+'%';$('mp').style.width=P.mp/mmp()*100+'%';$('xp').style.width=P.xp/xpn()*100+'%';$('hpt').textContent=Math.ceil(P.hp)+'/'+mhp()+' HP · '+W().n.replace('Katana ','');$('bP').textContent='🧪'+(Rk.st?St.pots:P.pots);{const w=W();for(let i=0;i<3;i++){const b=$('k'+(i+1)),s=w.sk[i],c=P.cds[i];b.textContent=c>0?Math.ceil(c):s.i;b.style.opacity=c>0||P.mp<s.mp?.45:1;b.style.background=w.c+'cc';b.style.color='#000'}}
  const q=QS[P.qi];$('qs').innerHTML=q?`<b>Quest</b><br>${q.t}<br>${Math.min(P.qc,q.n)}/${q.n}<br><span style="color:#fd4">${P.qc>=q.n?'Kembali ke penjaga':'Ikuti panah kuning'}</span>`:'<b>Quest</b><br>Semua selesai!';
@@ -3136,7 +3136,7 @@ new MutationObserver(()=>{$('lob').classList.toggle('setopen',getComputedStyle($
 (()=>{
 const _net=net;
 net=function(o){
- if(o&&o.t==='st'){try{o.e=P.eq;o.sk=P.skin||'';o.ks=(P.kse||{})[P.eq]||'';o.mv=(P.mv&&!P.sw)?1:0;o.sw=P.sw?1:0;o.aa=+(P.aa||0).toFixed(2);o.tt=P.title||'';o.an=Math.floor(P.an||0);o.vy=P.vy?1:0;o.at=Math.max(0,Math.min(1,(P.atk||0)/.3));if(P.eq==='punch'&&PU.on&&PU.ph===0)o.pd=[+PU.dx.toFixed(2),+PU.dy.toFixed(2)]}catch(e){}return _net(o)}
+ if(o&&o.t==='st'){try{o.e=P.eq;o.sk=P.skin||'';o.ks=(P.kse||{})[P.eq]||'';o.mv=(P.mv&&!P.sw)?1:0;o.sw=P.sw?1:0;o.aa=+(P.aa||0).toFixed(2);o.tt=P.title||'';if(P.eq==='punch'&&PU.on&&PU.ph===0)o.pd=[+PU.dx.toFixed(2),+PU.dy.toFixed(2)]}catch(e){}return _net(o)}
  if(o&&o.t==='fx'){const ci=window.__rmCi;queueMicrotask(()=>{try{o.i=o.k&&ci!==undefined?ci:-1;o.aa=+(P.aa||0).toFixed(2);o.f=P.face<0?-1:1;o.ch=+(P.cgk||0).toFixed(2);o.ks=(P.kse||{})[o.w]||'';if(o.w==='punch'&&!o.k)o.pn=[PN.h,PN.hv,+PN.dx.toFixed(2),+PN.dy.toFixed(2),PN.hit?1:0]}catch(e){}_net(o)});return}
  return _net(o)};
 const _cs=cast;cast=function(i){window.__rmCi=i;try{return _cs.apply(this,arguments)}finally{window.__rmCi=undefined}};
@@ -3150,7 +3150,7 @@ onNet=function(m){
  try{
   if(!m||m.id===myId)return;
   const r=rem.find(x=>x.rid===m.id);if(!r)return;
-  if(m.t==='st'){r.e=m.e||'biasa';r.sk=m.sk||'';r.ks=m.ks||'';r.smv=!!m.mv;r.ssw=!!m.sw;r.tt=m.tt||'';if(Number.isFinite(+m.an))r.an=+m.an;if(Number.isFinite(+m.vy))r.vyv=!!m.vy;if(!(r.atk>0)){r.aa=+m.aa||0;r.atk=(+m.at||0)*.3}if(r.hue===undefined)r.hue=[...m.id].reduce((a,c)=>a+c.charCodeAt(0),0)*37%360;if(m.pd&&r.pu&&r.pu.ph===0){r.pu.dx=m.pd[0];r.pu.dy=m.pd[1]}}
+  if(m.t==='st'){r.e=m.e||'biasa';r.sk=m.sk||'';r.ks=m.ks||'';r.smv=m.mv;r.ssw=m.sw;r.tt=m.tt||'';if(r.hue===undefined)r.hue=[...m.id].reduce((a,c)=>a+c.charCodeAt(0),0)*37%360;if(!(r.atk>0))r.aa=+m.aa||0;if(m.pd&&r.pu&&r.pu.ph===0){r.pu.dx=m.pd[0];r.pu.dy=m.pd[1]}}
   else if(m.t==='fx')rmFx(r,m);else if(m.t==='pu')rmPu(r,m)}catch(e){if(!rmFx.w){rmFx.w=1;console.error('rm net',e)}}};
 
 // ---- helper ----
