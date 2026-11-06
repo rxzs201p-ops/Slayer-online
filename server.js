@@ -162,6 +162,7 @@ class Hub {
             e: KAT.includes(m.e) ? m.e : 'biasa', sk: SKIN.includes(m.sk) ? m.sk : '',
             ks: KSKIDS.includes(m.ks) ? m.ks : '', tt: TIT.includes(m.tt) ? m.tt : '',
             mv: m.mv ? 1 : 0, sw: m.sw ? 1 : 0, aa: num(m.aa, -4, 4, 0),
+            an: num(m.an, 0, 100000, 0), vy: m.vy ? 1 : 0, at: num(m.at, 0, 1, 0),
             pd: Array.isArray(m.pd) ? [num(m.pd[0], -1, 1, 0), num(m.pd[1], -1, 1, 0)] : undefined // arah bidik One Punch saat charge
           };
           for (const x of mt.ps) if (x !== p) this.send(x, out);
