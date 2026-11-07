@@ -48,6 +48,7 @@ async function init(opts) {
   // Migrasi token lama (teks biasa) -> hash
   for (const e in AC) { const a = AC[e]; if (a.tok) { a.ths = (a.ths || []).concat(sha(a.tok)); delete a.tok; mark('acc', e); } }
   indexTokens();
+  weeklyCheck();
   await flush(true);
   return ST;
 }
@@ -55,6 +56,7 @@ async function init(opts) {
 // ===== Util =====
 const hashPw = (pw, salt) => crypto.scryptSync(pw, salt, 32).toString('hex');
 const sha = s => crypto.createHash('sha256').update(String(s)).digest('hex');
+const GEN = ['m', 'f'], AVN = 12, okAv = v => Number.isInteger(v) && v >= 0 && v < AVN;
 const okUser = e => /^[a-z0-9_]{3,14}$/.test(e);
 const hashSave = s => sha(JSON.stringify(s)); // hanya untuk ekspor lama (sebelum v2)
 const safeEq = (a, b) => { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); };
@@ -77,6 +79,31 @@ const MAILS = (() => { let a = []; try { a = JSON.parse(process.env.MAILS_JSON |
 ]); })();
 const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'tombak', 'kunai', 'spidey', 'punch', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
 const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']);
+// ===== SURVIVAL + RESET MINGGUAN + GELAR TOP =====
+// Minggu berganti tiap Senin 00:00 (WIB/MYT-ish: 16:00 UTC hari Minggu). Saat pergantian: top 10 Ranked (Elo) & top 10 Survival
+// dapat gelar "Top N" selama 7 hari, lalu rating Elo dan papan Survival di-reset.
+const WEEK = 7 * 864e5, WK0 = Date.UTC(2026, 10, 1, 16, 0, 0), SV_MIN = 120, SV_MAX = 3 * 3600, SV_KEEP = 100;
+const weekOf = t => Math.floor((t - WK0) / WEEK), nextReset = t => WK0 + (weekOf(t) + 1) * WEEK;
+const svBoard = () => { if (!META.svb || typeof META.svb.e !== 'object') META.svb = { e: {} }; return META.svb.e; };
+const topTitles = acc => { const a = acc && AC[acc], now = Date.now(); return a && Array.isArray(a.top) ? a.top.filter(x => x && x.exp > now) : []; };
+const topBest = acc => { const l = topTitles(acc).slice().sort((a, b) => a.n - b.n || (a.k === 'r' ? -1 : 1)); return l.length ? l[0].id : ''; };
+const svSorted = () => Object.entries(svBoard()).sort((a, b) => b[1].t - a[1].t);
+function weeklyCheck(now) {
+  now = now || Date.now(); const cur = weekOf(now);
+  if (!META.wk || typeof META.wk.w !== 'number') { META.wk = { w: cur }; mark('meta', 'wk'); return false; }
+  if (cur <= META.wk.w) return false;
+  const pid2acc = {}; for (const e in AC) pid2acc[AC[e].pid] = e;
+  const elo = Object.entries(DB).filter(([, r]) => (r.w || 0) + (r.l || 0) > 0).sort((a, b) => b[1].r - a[1].r || (b[1].w || 0) - (a[1].w || 0)).slice(0, 10);
+  const sv = svSorted().slice(0, 10), exp = now + 7 * 864e5;
+  for (const e in AC) if (AC[e].top && AC[e].top.length) { AC[e].top = []; mark('acc', e); }
+  const give = (pid, k, i) => { const e = pid2acc[pid]; if (e) { (AC[e].top = AC[e].top || []).push({ k, n: i + 1, id: 't' + k + (i + 1), exp }); mark('acc', e); } };
+  elo.forEach(([pid], i) => give(pid, 'r', i)); sv.forEach(([pid], i) => give(pid, 's', i));
+  META.lw = { at: now, r: elo.map(([, r]) => ({ n: r.n, r: r.r })), s: sv.map(([, r]) => ({ n: r.n, t: r.t, w: r.w })) }; mark('meta', 'lw');
+  for (const id in DB) { const r = DB[id]; r.r = 1000; r.w = 0; r.l = 0; mark('rat', id); }
+  META.svb = { e: {} }; mark('meta', 'svb');
+  META.wk = { w: cur }; mark('meta', 'wk');
+  return true;
+}
 const int = (v, lo, hi, d) => { v = Math.floor(+v); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : (d === undefined ? lo : d); };
 const num = (v, lo, hi, d) => { v = +v; return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : (d === undefined ? lo : d); };
 const uniq = (a, ok) => Array.isArray(a) ? [...new Set(a.filter(x => ok.includes(x)))] : [];
@@ -160,7 +187,7 @@ class Hub {
           const out = {
             t: 'st', id: p.id, x: p.x, y: p.y, f: m.f < 0 ? -1 : 1, n: p.n,
             e: KAT.includes(m.e) ? m.e : 'biasa', sk: SKIN.includes(m.sk) ? m.sk : '',
-            ks: KSKIDS.includes(m.ks) ? m.ks : '', tt: TIT.includes(m.tt) ? m.tt : '',
+            ks: KSKIDS.includes(m.ks) ? m.ks : '', tt: topBest(p.acc) || (TIT.includes(m.tt) ? m.tt : ''), g: (p.acc && AC[p.acc] && AC[p.acc].g) || '',
             mv: m.mv ? 1 : 0, sw: m.sw ? 1 : 0, aa: num(m.aa, -4, 4, 0),
             pd: Array.isArray(m.pd) ? [num(m.pd[0], -1, 1, 0), num(m.pd[1], -1, 1, 0)] : undefined // arah bidik One Punch saat charge
           };
@@ -171,7 +198,7 @@ class Hub {
       }
       case 'ping': this.send(p, { t: 'pong', ts: m.ts }); break;
       case 'chat': this.all({ t: 'chat', n: p.n, msg: clean(m.msg, 80) }, p); break;
-      case 'queue': this.queue(p, m.mode === 2 ? 2 : 1); break;
+      case 'queue': if (!(p.acc && AC[p.acc] && AC[p.acc].g)) { this.send(p, { t: 'pcancel' }); this.send(p, { t: 'gate' }); break; } this.queue(p, m.mode === 2 ? 2 : 1); break;
       case 'party': this.party(p, m); break;
       case 'rdy': {
         const mt = p.m;
@@ -213,6 +240,8 @@ class Hub {
         }
         break;
       }
+      case 'svs': p.svT0 = Date.now(); break; // Survival dimulai: waktu dihitung SERVER
+      case 'sve': { const r = this.svEnd(p, m.w); if (r) this.send(p, Object.assign({ t: 'sver' }, r)); break; }
       case 'cancel': this.dequeue(p); break;
       case 'dmg': this.dmg(p, m.d, m.to); break;
       case 'heal': this.heal(p, m.d); break;
@@ -220,6 +249,7 @@ class Hub {
       case 'login': this.login(p, m).catch(bad); break;
       case 'tok': this.tok(p, m.tok); break;
       case 'sv': this.sv(p, m); break;
+      case 'gen': this.setProfile(p, m).catch(() => this.send(p, { t: 'gen', ok: 0, msg: 'Server gagal menyimpan. Coba lagi.' })); break;
       case 'logout': {
         const a = p.acc && AC[p.acc];
         if (a && p.th) { a.ths = (a.ths || []).filter(x => x !== p.th); TKI.delete(p.th); mark('acc', p.acc); }
@@ -232,7 +262,14 @@ class Hub {
         this.send(p, { t: 'exp', ok: 1, blob }); break;
       }
       case 'imp': this.imp(p, m).catch(() => this.send(p, { t: 'imp', ok: 0, msg: 'Server gagal menyimpan. Coba lagi.' })); break;
-      case 'lb': this.send(p, { t: 'lb', list: Object.values(DB).sort((a, b) => b.r - a.r).slice(0, 10).map(x => ({ n: x.n, r: x.r, w: x.w, l: x.l })) }); break;
+      case 'lb': {
+        const now = Date.now(), srt = svSorted(), p2a = {}; for (const e in AC) p2a[AC[e].pid] = AC[e];
+        const avOf = id => { const a = p2a[id]; return a ? (a.av | 0) : -1; };
+        this.send(p, { t: 'lb', list: Object.entries(DB).filter(([, x]) => (x.w || 0) + (x.l || 0) > 0).sort((a, b) => b[1].r - a[1].r).slice(0, 10).map(([id, x]) => ({ n: x.n, r: x.r, w: x.w, l: x.l, av: avOf(id) })),
+          sv: srt.slice(0, 10).map(([id, x]) => ({ n: x.n, t: x.t, w: x.w, av: avOf(id), me: id === p.id ? 1 : 0 })), mysv: (srt.findIndex(([id]) => id === p.id) + 1) || 0, rst: nextReset(now), svmin: SV_MIN,
+          top: topTitles(p.acc), lw: META.lw || null });
+        break;
+      }
     }
   }
 
@@ -248,19 +285,32 @@ class Hub {
     try { await persist('acc', e); }
     catch (x) { a.ths = a.ths.filter(y => y !== h); TKI.delete(h); throw x; }
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: e === OWNER ? 1 : 0, save: full ? a.save : undefined });
+    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: e === OWNER ? 1 : 0, save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
   async reg(p, m) {
     const e = String(m.e || '').trim().toLowerCase();
     if (!okUser(e) || typeof m.pw !== 'string' || m.pw.length < 6 || m.pw.length > 64) return this.fail(p, 'Username (3-14 huruf kecil/angka/_) atau kata sandi (min. 6) tidak valid.');
+    if (!GEN.includes(m.g)) return this.fail(p, 'Pilih gender dulu. Gender tidak bisa diubah setelah akun dibuat.');
+    if (!okAv(m.av)) return this.fail(p, 'Pilih avatar profil.');
     if (AC[e]) return this.fail(p, 'Username sudah dipakai. Gunakan Masuk.');
     if (e === OWNER && !(process.env.OWNER_PW && safeEq(m.pw, process.env.OWNER_PW))) return this.fail(p, 'Username ini dicadangkan.');
     let sv = JSON.parse(JSON.stringify(FRESH));
     if (e === OWNER) { sv = cleanSave(m.save, true); if (!sv) return this.fail(p, 'Data lokal tidak valid, tidak bisa dipautkan.'); }
     const salt = crypto.randomBytes(16).toString('hex');
-    AC[e] = { salt, hash: hashPw(m.pw, salt), pid: p.id, save: sv, at: Date.now(), ths: [] };
+    AC[e] = { salt, hash: hashPw(m.pw, salt), pid: p.id, save: sv, at: Date.now(), ths: [], g: m.g, av: m.av };
     try { await this.session(p, e, e !== OWNER); }
     catch (x) { delete AC[e]; dirty.acc.delete(e); console.error('reg gagal:', x.message); this.fail(p, 'Server gagal menyimpan akun ke database. Coba lagi sebentar lagi.'); }
+  }
+  // Gender hanya boleh diset SEKALI (akun lama yang belum punya) dan tidak bisa diubah lagi. Avatar boleh diganti.
+  async setProfile(p, m) {
+    const a = p.acc && AC[p.acc];
+    if (!a) return this.send(p, { t: 'gen', ok: 0, msg: 'Belum masuk akun.' });
+    const og = a.g, oa = a.av;
+    if (!a.g) { if (!GEN.includes(m.g)) return this.send(p, { t: 'gen', ok: 0, msg: 'Gender tidak valid.' }); a.g = m.g; }
+    if (m.av !== undefined) { if (!okAv(m.av)) return this.send(p, { t: 'gen', ok: 0, msg: 'Avatar tidak valid.' }); a.av = m.av; }
+    try { await persist('acc', p.acc); }
+    catch (x) { a.g = og; a.av = oa; if (og === undefined) delete a.g; return this.send(p, { t: 'gen', ok: 0, msg: 'Server gagal menyimpan. Coba lagi.' }); }
+    this.send(p, { t: 'gen', ok: 1, g: a.g, av: a.av | 0 });
   }
   async login(p, m) {
     const now = Date.now();
@@ -284,7 +334,7 @@ class Hub {
     const h = sha(t), e = TKI.get(h), a = e && AC[e];
     if (!a) return bad();
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: e === OWNER ? 1 : 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: e === OWNER ? 1 : 0, top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
 
   // ----- Simpan cloud -----
@@ -431,6 +481,22 @@ class Hub {
     for (const x of ps) this.send(x, { t: 'match', mode, sec: mt.t, side: tm[x.id], slot: slot[x.id], ps: ps.filter(y => y !== x).map(y => Object.assign(info(y), { al: tm[y.id] === tm[x.id] ? 1 : 0 })) });
     return mt;
   }
+  // Akhir run Survival. Durasi = selisih jam SERVER (klien tidak bisa memalsukan). Masuk papan bila >= SV_MIN detik.
+  svEnd(p, wv) {
+    const t0 = p.svT0; if (!t0 || !p.id) return null; p.svT0 = 0;
+    const t = Math.round(Math.min(SV_MAX, (Date.now() - t0) / 1000) * 10) / 10, w = int(wv, 0, Math.floor(t / 1.5) + 1, 0);
+    const e = svBoard(), rec = e[p.id]; let ok = 0;
+    if (t >= SV_MIN) {
+      ok = 1;
+      if (!rec || t > rec.t) {
+        e[p.id] = { n: clean(p.n, 14), t, w };
+        const ks = Object.keys(e); if (ks.length > SV_KEEP) { ks.sort((a, b) => e[a].t - e[b].t); for (const k of ks.slice(0, ks.length - SV_KEEP)) delete e[k]; }
+        mark('meta', 'svb');
+      }
+    }
+    const rank = (svSorted().findIndex(([id]) => id === p.id) + 1) || 0;
+    return { tm: t, w, ok, min: SV_MIN, rank, best: e[p.id] ? e[p.id].t : 0, pb: ok && (!rec || t > rec.t) ? 1 : 0 };
+  }
   bucket(p) { const now = Date.now(); p.tk = Math.min(8, p.tk + (now - p.tl) / 1000 * 8); p.tl = now; if (p.tk < 1) return false; p.tk--; return true; }
   dmg(p, d, to) {
     const mt = p.m; if (!mt || mt.done || !mt.go || Date.now() < mt.goAt || !this.bucket(p)) return;
@@ -473,6 +539,10 @@ class Hub {
     this.tc = (this.tc || 0) + 1;
     if (this.tc % 3 === 0 && ST) flush(false).catch(() => {}); // simpan data yang berubah tiap ~3 detik
     if (this.tc % 5 === 0) this.cnt();
+    if (this.tc % 30 === 0 && weeklyCheck()) {
+      flush(true).catch(() => {});
+      for (const x of this.P.values()) { this.send(x, { t: 'top', top: topTitles(x.acc), reset: 1 }); const r = this.rec(x); this.send(x, { t: 'me', r: r.r, w: r.w, l: r.l }); }
+    }
     this.pair(); this.pair2();
     for (const mt of [...this.M]) {
       if (!mt.go) { if (++mt.wt > 20) this.end(mt, null); continue; }
@@ -482,6 +552,7 @@ class Hub {
     }
   }
   close(p) {
+    if (p.svT0) this.svEnd(p, 0);
     this.dequeue(p); this.ptLeave(p);
     const mt = p.m;
     if (mt && !mt.done) { // pemain putus: dianggap gugur; jika seluruh timnya gugur, tim lawan menang
@@ -588,7 +659,7 @@ function handleReport(req, res) {
 const SW_JS = `self.addEventListener('install',e=>self.skipWaiting());
 self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
 self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(l=>{for(const c of l){if('focus' in c)return c.focus()}return self.clients.openWindow('/')}))});`;
-module.exports = { Hub, DB, AC, init, flush, persist, cleanSave, sign, sha, SW_JS };
+module.exports = { Hub, DB, AC, META, init, flush, persist, cleanSave, sign, sha, SW_JS, weeklyCheck, svBoard, topTitles };
 
 if (require.main === module) {
   const http = require('http'), path = require('path');
