@@ -162,10 +162,10 @@ class Hub {
             e: KAT.includes(m.e) ? m.e : 'biasa', sk: SKIN.includes(m.sk) ? m.sk : '',
             ks: KSKIDS.includes(m.ks) ? m.ks : '', tt: TIT.includes(m.tt) ? m.tt : '',
             mv: m.mv ? 1 : 0, sw: m.sw ? 1 : 0, aa: num(m.aa, -4, 4, 0),
-            an: num(m.an, 0, 100000, 0), vy: m.vy ? 1 : 0, at: num(m.at, 0, 1, 0),
             pd: Array.isArray(m.pd) ? [num(m.pd[0], -1, 1, 0), num(m.pd[1], -1, 1, 0)] : undefined // arah bidik One Punch saat charge
           };
-          for (const x of mt.ps) if (x !== p) this.send(x, out);
+          const js = JSON.stringify(out);
+          for (const x of mt.ps) if (x !== p && x.ws && x.ws.readyState === 1 && x.ws.bufferedAmount < 32768) x.ws.send(js);
         }
         break;
       }
@@ -193,6 +193,14 @@ class Hub {
         if (mt && sg && n - (p.puT || 0) > 20) {
           p.puT = n;
           const out = { t: 'pu', id: p.id, s: sg, dx: num(m.dx, -1, 1, 1), dy: num(m.dy, -1, 1, 0), k: num(m.k, 0, 1, 1), rsc: num(m.rsc, 0.5, 3, 2.35) };
+          for (const x of mt.ps) if (x !== p) this.send(x, out);
+        }
+        break;
+      }
+      case 'qc': { // quick chat Ranked: hanya indeks frasa preset (0-5), tanpa teks bebas; jeda 1,2 dtk per pemain
+        const mt = p.m, n = Date.now(), qi = (Number.isInteger(m.i) && m.i >= 0 && m.i <= 5) ? m.i : -1;
+        if (mt && mt.go && qi >= 0 && n - (p.qcT || 0) > 1200) {
+          p.qcT = n; const out = { t: 'qc', id: p.id, i: qi };
           for (const x of mt.ps) if (x !== p) this.send(x, out);
         }
         break;
@@ -600,11 +608,12 @@ if (require.main === module) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(d);
       });
     });
-    const wss = new WebSocketServer({ server, maxPayload: 65536 });
+    const wss = new WebSocketServer({ server, maxPayload: 65536, perMessageDeflate: false });
     const hub = new Hub();
     setInterval(() => hub.tick(), 1000);
     wss.on('connection', ws => {
       const p = hub.connect(ws);
+      try { ws._socket.setNoDelay(true); } catch (e) {}
       ws.on('message', d => { let m; try { m = JSON.parse(d); } catch (e) { return; } try { hub.handle(p, m); } catch (e) { console.error(e); } });
       ws.on('close', () => hub.close(p));
       ws.on('error', () => {});
