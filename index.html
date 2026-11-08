@@ -2251,7 +2251,7 @@ requestAnimationFrame(frame);
 const kb=document.createElement('div');kb.id='vk';document.body.appendChild(kb);
 const ABC=['qwertyuiop','asdfghjkl','zxcvbnm'],NUM=['1234567890','-_/:;()@#','.,?!\'+=*'];let mode='abc',sh=0,tgt=null;
 const isT=el=>el&&el.tagName==='INPUT'&&!['range','file','checkbox','radio','button','submit'].includes(el.type);
-const need=el=>(matchMedia('(pointer:coarse)').matches||navigator.maxTouchPoints>0)&&(innerHeight>innerWidth||!!(el&&el.closest&&el.closest('#gate')));
+const need=el=>(matchMedia('(pointer:coarse)').matches||navigator.maxTouchPoints>0)&&innerHeight>innerWidth;
 function build(){const rows=mode==='abc'?ABC:NUM,k=(t,d,c)=>`<button data-k="${d||t}"${c?` class="${c}"`:''}>${t}</button>`,ch=r=>[...r].map(x=>k(sh&&mode==='abc'?x.toUpperCase():x,x)).join('');
  kb.innerHTML=`<div class="r">${ch(rows[0])}</div><div class="r">${ch(rows[1])}</div><div class="r">${mode==='abc'?k('⇧','shift','w'+(sh?' on':'')):''}${ch(rows[2])}${k('⌫','back','w')}</div><div class="r">${k(mode==='abc'?'123':'abc','mode','w')}${k(',')}<button data-k=" " class="sp">spasi</button>${k('.')}${k('Kirim ⏎','enter','ent')}${k('⌄','hide','w')}</div>`}
 function ins(t){const el=tgt;if(!el)return;const s0=el.selectionStart==null?el.value.length:el.selectionStart,e0=el.selectionEnd==null?s0:el.selectionEnd;if(el.maxLength>0&&el.value.length-(e0-s0)>=el.maxLength)return;if(el.id==='ptCode')t=t.toUpperCase();el.value=el.value.slice(0,s0)+t+el.value.slice(e0);const q=s0+t.length;try{el.setSelectionRange(q,q)}catch(_){}el.dispatchEvent(new Event('input',{bubbles:true}))}
