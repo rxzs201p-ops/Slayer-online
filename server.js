@@ -726,7 +726,15 @@ function handleReport(req, res) {
   });
 }
 // Service worker minimal: dipakai untuk menampilkan notifikasi lokal (pengingat login harian) dan membuka game saat notifikasi diketuk.
-const SW_JS = `self.addEventListener('install',e=>self.skipWaiting());
+const SW_JS = `const CACHE='slayer-shell-v1';
+self.addEventListener('install',e=>self.skipWaiting());
+// Cangkang halaman disimpan di HP: saat server hosting gratis sedang tidur (30-60 dtk), game tetap langsung tampil.
+self.addEventListener('fetch',e=>{const r=e.request;if(r.method!=='GET'||r.mode!=='navigate')return;
+ const u=new URL(r.url);if(u.origin!==location.origin||u.pathname!=='/')return;
+ e.respondWith((async()=>{const c=await caches.open(CACHE);const hit=await c.match('/');
+  const net=fetch(r).then(res=>{if(res&&res.ok)c.put('/',res.clone());return res}).catch(()=>null);
+  if(hit){e.waitUntil(net);return hit}
+  const res=await net;return res||new Response('Server sedang bangun, muat ulang sebentar lagi.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}})})())});
 self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
 self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(l=>{for(const c of l){if('focus' in c)return c.focus()}return self.clients.openWindow('/')}))});`;
 module.exports = { Hub, DB, AC, META, init, flush, persist, cleanSave, sign, sha, SW_JS, weeklyCheck, svBoard, topTitles };
@@ -736,29 +744,52 @@ if (require.main === module) {
   const { WebSocketServer } = require('ws');
   const PORT = process.env.PORT || 8080;
   (async () => {
-    await init();
-    console.log('Penyimpanan: ' + ({ postgres: 'PostgreSQL (permanen)', gas: 'Google Sheets via Apps Script (permanen)', file: 'FILE LOKAL (hilang saat redeploy di hosting gratis; isi GAS_URL + GAS_SECRET)' })[ST.kind] + ' | akun dimuat: ' + Object.keys(AC).length);
+    // Buka port LEBIH DULU supaya halaman & /health langsung terjangkau (Render memeriksa port).
+    // Database (Neon/GAS/file) dihubungkan di latar belakang dengan percobaan ulang.
+    let READY = false, INITERR = '';
+    const pending = [];
+    const bootDb = async () => {
+      for (let i = 1; ; i++) {
+        try { await init(); READY = true; INITERR = ''; break; }
+        catch (e) { INITERR = String(e && e.message || e); console.error('Database belum siap (percobaan ' + i + '):', INITERR); await new Promise(r => setTimeout(r, Math.min(15000, 2000 * i))); }
+      }
+    };
+    const afterInit0 = () => console.log('Penyimpanan: ' + ({ postgres: 'PostgreSQL (permanen)', gas: 'Google Sheets via Apps Script (permanen)', file: 'FILE LOKAL (hilang saat redeploy di hosting gratis; isi GAS_URL + GAS_SECRET)' })[ST.kind] + ' | akun dimuat: ' + Object.keys(AC).length);
+    const afterInit = afterInit0;
     // Server yang sama menyajikan game (index.html) dan menerima koneksi WebSocket.
+    // index.html dibaca sekali, dikompres gzip, lalu disajikan dari memori (file besar, HP lambat).
+    const zlib = require('zlib'); let IDX = null, IDXZ = null, IDXT = 0;
+    const sendIndex = (req, res) => {
+      const f = path.join(__dirname, 'index.html');
+      fs.stat(f, (e, st) => {
+        if (e) { res.writeHead(404); res.end('index.html tidak ditemukan'); return; }
+        const go = () => {
+          const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+          const h = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', 'Vary': 'Accept-Encoding' };
+          if (gz) h['Content-Encoding'] = 'gzip';
+          res.writeHead(200, h); res.end(gz ? IDXZ : IDX);
+        };
+        if (IDX && IDXT === st.mtimeMs) return go();
+        fs.readFile(f, (e2, d) => { if (e2) { res.writeHead(500); res.end('gagal membaca index.html'); return; } IDX = d; IDXZ = zlib.gzipSync(d, { level: 9 }); IDXT = st.mtimeMs; go(); });
+      });
+    };
     const server = http.createServer((req, res) => {
-      if (req.url === '/health') { res.end('ok ' + ST.kind); return; }
+      if (req.url === '/health') { res.end('ok ' + (READY ? ST.kind : 'starting')); return; }
       if (req.url.split('?')[0] === '/sw.js') { res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); res.end(SW_JS); return; }
       if (req.method === 'POST' && req.url.split('?')[0] === '/report') { handleReport(req, res); return; }
       if (req.url.split('?')[0] === '/mail.json') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(MAILS)); return; }
-      fs.readFile(path.join(__dirname, 'index.html'), (e, d) => {
-        if (e) { res.writeHead(404); res.end('index.html tidak ditemukan'); return; }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(d);
-      });
+      sendIndex(req, res);
     });
     const wss = new WebSocketServer({ server, maxPayload: 65536, perMessageDeflate: false });
     const hub = new Hub();
-    setInterval(() => hub.tick(), 1000);
+    setInterval(() => { if (READY) hub.tick(); }, 1000);
     // Pantau keterlambatan event-loop (server yang sibuk/di-throttle menambah ping). Dikirim ke klien di pong.
     let LAG = 0, LAGMAX = 0, lagT = Date.now();
     setInterval(() => { const n = Date.now(), d = Math.max(0, n - lagT - 250); lagT = n; LAG = d; LAGMAX = Math.max(LAGMAX * 0.9, d); if (d > 150) console.warn('Event-loop lag ' + d + 'ms'); }, 250).unref();
     // Heartbeat: jaga koneksi tetap hangat lewat proxy hosting & buang koneksi mati.
     setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate(); } catch (e) {} continue; } c.isAlive = false; try { c.ping(); } catch (e) {} } }, 20000).unref();
     server.keepAliveTimeout = 65000; server.headersTimeout = 66000;
-    wss.on('connection', ws => {
+    const setupConn = ws => {
       const p = hub.connect(ws);
       ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; });
       try { ws._socket.setNoDelay(true); ws._socket.setKeepAlive(true, 20000); } catch (e) {}
@@ -769,8 +800,15 @@ if (require.main === module) {
         let m; try { m = JSON.parse(d); } catch (e) { return; } try { hub.handle(p, m); } catch (e) { console.error(e); } });
       ws.on('close', () => hub.close(p));
       ws.on('error', () => {});
+    };
+    // Koneksi yang datang saat database belum siap ditahan sebentar, lalu dilayani setelah siap.
+    wss.on('connection', ws => {
+      if (READY) return setupConn(ws);
+      pending.push(ws); ws.on('error', () => {}); ws.on('message', d => { if (!READY) { try { if (String(d).indexOf('"t":"ping"') < 0) ws.send('{"t":"wait","msg":"Server sedang menyiapkan data, coba lagi sebentar…"}'); } catch (e) {} } });
+      try { ws.send('{"t":"wait","msg":"Server sedang menyiapkan data…"}'); } catch (e) {}
     });
-    server.listen(PORT, '0.0.0.0', () => console.log('Slayer Online siap di port ' + PORT));
+    server.listen(PORT, () => console.log('Slayer Online siap di port ' + PORT));
+    bootDb().then(() => { afterInit(); for (const ws of pending.splice(0)) if (ws.readyState === 1) setupConn(ws); });
     // Simpan semua yang tertunda sebelum proses berhenti (Render mengirim SIGTERM saat redeploy).
     const stop = async () => { setTimeout(() => process.exit(1), 8000).unref(); try { await flush(true); } catch (e) {} process.exit(0); };
     process.on('SIGTERM', stop); process.on('SIGINT', stop);
