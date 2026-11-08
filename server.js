@@ -75,10 +75,12 @@ const EV = { start: Date.UTC(2026, 10, 4), days: 90, need: 30, test: false }; //
 // Contoh pampasan bug:  { id: 'komp-bug1', t: 'Pampasan bug', b: 'Maaf atas gangguan kemarin.', ts: Date.UTC(2026,10,5), gold: 500, dia: 20 }
 const MAILS = (() => { let a = []; try { a = JSON.parse(process.env.MAILS_JSON || '[]'); } catch (e) {} return a.concat([
   { id: 'open-world', t: 'Kabar dari Developer', b: '*Open world*_ akan hadir dalam kurun waktu terdekat, silakan menikmati gamenya._\n\n ~developer Slayer online~', ts: Date.UTC(2026, 10, 5, 12), gold: 0, dia: 0 },
+  { id: 'gacha-skin1', t: 'Event Gacha Skin Premium!', b: 'Skin Spear "Naga Fajar" dan skin Kunai "Nebula Sabit" hadir di Gacha Skin (tombol di lobi).\n\n💎30 per gacha, 💎290 untuk 10x. Gacha ke-50 pasti dapat 1 skin baru.\nEvent berlangsung 7 hari — jangan sampai terlewat!', ts: Date.UTC(2026, 10, 8), exp: Date.UTC(2026, 10, 15), gold: 0, dia: 0 },
   { id: 'welcome', t: 'Selamat datang di Slayer Online!', b: 'Cek mail ini untuk kabar update, event, dan hadiah dari dev.', ts: Date.UTC(2026, 10, 5), gold: 0, dia: 0 },
 ]); })();
 const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'tombak', 'kunai', 'spidey', 'punch', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
-const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']);
+const GSKIDS = ['tombak3', 'kunai3']; // skin premium event Gacha (7 hari) — hanya didapat dari gacha, tidak dijual di kedai
+const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']).concat(GSKIDS);
 // ===== MAIL DINAMIS (dari panel admin) + KODE REDEEM =====
 const mailStore = () => { if (!META.mls || !Array.isArray(META.mls.l)) META.mls = { l: [] }; return META.mls.l; };
 const mailsFor = acc => mailStore().filter(x => (x.to === '*' || x.to === acc) && (!x.exp || x.exp > Date.now()))
@@ -126,7 +128,7 @@ function cleanSave(s, owner) {
     const up = {};
     if (s.up && typeof s.up === 'object') for (const k of KAT) if (s.up[k] !== undefined) up[k] = int(s.up[k], 0, 10);
     const idx = v => (Number.isInteger(v) && v >= 0 && v < gear.length) ? v : undefined;
-    const evk = int(s.evk, 0, EV.need), lgc = int(s.lg && s.lg.c, 0, 20); // login harian: One Punch hanya sah bila 20 hari terkumpul
+    const evk = int(s.evk, 0, EV.need), lgc = int(s.lg && s.lg.c, 0, 20), gcn = int(s.gc, 0, 9999); // gcn = total gacha; skin gacha hanya sah bila pernah gacha // login harian: One Punch hanya sah bila 20 hari terkumpul
     const mlOk = Array.isArray(s.ml) ? s.ml.filter(x => typeof x === 'string' && /^[a-z0-9_-]{1,24}!?$/i.test(x)).slice(-80) : []; // kill Classic event; Spidey hanya sah bila misi selesai
     const o = {
       lvl: int(s.lvl, 1, 300), xp: num(s.xp, 0, 1e7), hp: num(s.hp, 0, 1e5, 80), mp: num(s.mp, 0, 1e4, 38),
@@ -134,7 +136,7 @@ function cleanSave(s, owner) {
       qi: int(s.qi, 0, 50), qc: int(s.qc, 0, 99),
       eq: KAT.includes(s.eq) && (s.eq !== 'spidey' || evk >= EV.need || EV.test) && (s.eq !== 'punch' || lgc >= 20) ? s.eq : 'biasa', evk, gear, up, ea: idx(s.ea), eb: idx(s.eb),
       sk: uniq(s.sk, SKIN), skin: SKIN.includes(s.skin) ? s.skin : undefined,
-      ksk: uniq(s.ksk, KSKIDS), kse: (() => { const r = {}; if (s.kse && typeof s.kse === 'object') for (const w of KAT) { const v = s.kse[w]; if (typeof v === 'string' && KSKIDS.includes(v) && v.startsWith(w) && v.length === w.length + 1) r[w] = v; } return r; })(),
+      ksk: uniq(s.ksk, KSKIDS).filter(x => !GSKIDS.includes(x) || gcn >= 1), gc: gcn, gp: int(s.gp, 0, 49), kse: (() => { const r = {}; if (s.kse && typeof s.kse === 'object') for (const w of KAT) { const v = s.kse[w]; if (typeof v === 'string' && KSKIDS.includes(v) && v.startsWith(w) && v.length === w.length + 1 && (!GSKIDS.includes(v) || gcn >= 1)) r[w] = v; } return r; })(),
       dinv: uniq(s.dinv, KAT).filter(x => x !== 'spidey' || evk >= EV.need || EV.test).filter(x => x !== 'punch' || lgc >= 20), best: int(s.best, 0, 200),
       ti: uniq(s.ti, TIT), title: TIT.includes(s.title) ? s.title : undefined,
       name: clean(s.name, 14) || undefined, rk: s.rk === undefined ? undefined : num(s.rk, 0, 5000, 1000),
