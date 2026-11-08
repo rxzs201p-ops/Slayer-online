@@ -79,6 +79,12 @@ const MAILS = (() => { let a = []; try { a = JSON.parse(process.env.MAILS_JSON |
 ]); })();
 const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'tombak', 'kunai', 'spidey', 'punch', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
 const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']);
+// ===== MAIL DINAMIS (dari panel admin) + KODE REDEEM =====
+const mailStore = () => { if (!META.mls || !Array.isArray(META.mls.l)) META.mls = { l: [] }; return META.mls.l; };
+const mailsFor = acc => mailStore().filter(x => (x.to === '*' || x.to === acc) && (!x.exp || x.exp > Date.now()))
+  .map(x => ({ id: x.id, t: x.t, b: x.b, ts: x.ts, exp: x.exp || 0, gold: x.gold || 0, dia: x.dia || 0, k: 'dev' }));
+const codeStore = () => { if (!META.rdm || typeof META.rdm.c !== 'object') META.rdm = { c: {} }; return META.rdm.c; };
+const clampI = (v, a, b) => Math.max(a, Math.min(b, Math.floor(+v || 0)));
 // ===== SURVIVAL + RESET MINGGUAN + GELAR TOP =====
 // Minggu berganti tiap Senin 00:00 (WIB/MYT-ish: 16:00 UTC hari Minggu). Saat pergantian: top 10 Ranked (Elo) & top 10 Survival
 // dapat gelar "Top N" selama 7 hari, lalu rating Elo dan papan Survival di-reset.
@@ -154,7 +160,9 @@ const FRESH = { lvl: 1, xp: 0, hp: 80, mp: 38, gold: 0, pots: 0, dia: 0, qi: 0, 
 
 // Pemilik: username dicadangkan. Kata sandinya TIDAK ada di kode; isi lewat env OWNER_PW di hosting.
 // Akun pemilik membawa progres sendiri; semua akun baru lain mulai dari nol (0 emas, 0 diamond).
-const OWNER = 'razz';
+// Akun admin/pemilik (boleh lebih dari satu nama; atur lewat env OWNER_USERS="razzz,razz"). Mendaftar dengan nama ini butuh OWNER_PW.
+const OWNERS = new Set((process.env.OWNER_USERS || 'razzz,razz').split(',').map(x => x.trim().toLowerCase()).filter(Boolean));
+const isOwner = e => OWNERS.has(e);
 
 const MAXHP = 1000, SEC1 = 150, SEC2 = 180, MAXDMG = 600, MAXHEAL = 300;
 const FAILS = new Map(); // percobaan login gagal per username (di memori)
@@ -187,7 +195,7 @@ class Hub {
           const out = {
             t: 'st', id: p.id, x: p.x, y: p.y, f: m.f < 0 ? -1 : 1, n: p.n,
             e: KAT.includes(m.e) ? m.e : 'biasa', sk: SKIN.includes(m.sk) ? m.sk : '',
-            ks: KSKIDS.includes(m.ks) ? m.ks : '', tt: topBest(p.acc) || (TIT.includes(m.tt) ? m.tt : ''), g: (p.acc && AC[p.acc] && AC[p.acc].g) || '',
+            ks: KSKIDS.includes(m.ks) ? m.ks : '', tt: topBest(p.acc) || (TIT.includes(m.tt) ? m.tt : ''), g: (p.acc && AC[p.acc] && AC[p.acc].g) || '', vf: (p.acc && AC[p.acc] && AC[p.acc].vf) ? 1 : 0,
             mv: m.mv ? 1 : 0, sw: m.sw ? 1 : 0, aa: num(m.aa, -4, 4, 0),
             pd: Array.isArray(m.pd) ? [num(m.pd[0], -1, 1, 0), num(m.pd[1], -1, 1, 0)] : undefined // arah bidik One Punch saat charge
           };
@@ -249,6 +257,13 @@ class Hub {
       case 'login': this.login(p, m).catch(bad); break;
       case 'tok': this.tok(p, m.tok); break;
       case 'sv': this.sv(p, m); break;
+      case 'rdm': this.redeem(p, m).catch(() => this.send(p, { t: 'rdm', ok: 0, msg: 'Server gagal memproses. Coba lagi.' })); break;
+      case 'adm': this.admin(p, m).catch(() => this.send(p, { t: 'adm', ok: 0, msg: 'Gagal memproses.' })); break;
+      case 'prof': {
+        const r = this.rec(p), a = p.acc && AC[p.acc], wp = Object.entries(r.wp || {}).sort((x, y) => y[1].u - x[1].u)[0];
+        this.send(p, { t: 'prof', r: r.r, w: r.w, l: r.l, tw: r.tw === undefined ? r.w : r.tw, tl: r.tl === undefined ? r.l : r.tl, st: r.st || 0, bs: r.bs || 0, pk: Math.max(r.pk || 0, r.r), wp: wp ? { id: wp[0], u: wp[1].u, w: wp[1].w } : null, g: a ? a.g || '' : '', av: a ? a.av | 0 : 0, vf: a && a.vf ? 1 : 0, top: topTitles(p.acc) });
+        break;
+      }
       case 'gen': this.setProfile(p, m).catch(() => this.send(p, { t: 'gen', ok: 0, msg: 'Server gagal menyimpan. Coba lagi.' })); break;
       case 'logout': {
         const a = p.acc && AC[p.acc];
@@ -264,9 +279,10 @@ class Hub {
       case 'imp': this.imp(p, m).catch(() => this.send(p, { t: 'imp', ok: 0, msg: 'Server gagal menyimpan. Coba lagi.' })); break;
       case 'lb': {
         const now = Date.now(), srt = svSorted(), p2a = {}; for (const e in AC) p2a[AC[e].pid] = AC[e];
-        const avOf = id => { const a = p2a[id]; return a ? (a.av | 0) : -1; };
-        this.send(p, { t: 'lb', list: Object.entries(DB).filter(([, x]) => (x.w || 0) + (x.l || 0) > 0).sort((a, b) => b[1].r - a[1].r).slice(0, 10).map(([id, x]) => ({ n: x.n, r: x.r, w: x.w, l: x.l, av: avOf(id) })),
-          sv: srt.slice(0, 10).map(([id, x]) => ({ n: x.n, t: x.t, w: x.w, av: avOf(id), me: id === p.id ? 1 : 0 })), mysv: (srt.findIndex(([id]) => id === p.id) + 1) || 0, rst: nextReset(now), svmin: SV_MIN,
+        const elo = Object.entries(DB).filter(([, x]) => (x.w || 0) + (x.l || 0) > 0).sort((a, b) => b[1].r - a[1].r);
+        const avOf = id => { const a = p2a[id]; return a ? (a.av | 0) : -1; }, vfOf = id => (p2a[id] && p2a[id].vf) ? 1 : 0;
+        this.send(p, { t: 'lb', list: elo.slice(0, 10).map(([id, x]) => ({ n: x.n, r: x.r, w: x.w, l: x.l, av: avOf(id), vf: vfOf(id), me: id === p.id ? 1 : 0 })), myr: elo.findIndex(([id]) => id === p.id) + 1,
+          sv: srt.slice(0, 10).map(([id, x]) => ({ n: x.n, t: x.t, w: x.w, av: avOf(id), vf: vfOf(id), me: id === p.id ? 1 : 0 })), mysv: (srt.findIndex(([id]) => id === p.id) + 1) || 0, rst: nextReset(now), svmin: SV_MIN,
           top: topTitles(p.acc), lw: META.lw || null });
         break;
       }
@@ -285,7 +301,7 @@ class Hub {
     try { await persist('acc', e); }
     catch (x) { a.ths = a.ths.filter(y => y !== h); TKI.delete(h); throw x; }
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: e === OWNER ? 1 : 0, save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
   async reg(p, m) {
     const e = String(m.e || '').trim().toLowerCase();
@@ -293,12 +309,12 @@ class Hub {
     if (!GEN.includes(m.g)) return this.fail(p, 'Pilih gender dulu. Gender tidak bisa diubah setelah akun dibuat.');
     if (!okAv(m.av)) return this.fail(p, 'Pilih avatar profil.');
     if (AC[e]) return this.fail(p, 'Username sudah dipakai. Gunakan Masuk.');
-    if (e === OWNER && !(process.env.OWNER_PW && safeEq(m.pw, process.env.OWNER_PW))) return this.fail(p, 'Username ini dicadangkan.');
+    if (isOwner(e) && !(process.env.OWNER_PW && safeEq(m.pw, process.env.OWNER_PW))) return this.fail(p, 'Username ini dicadangkan.');
     let sv = JSON.parse(JSON.stringify(FRESH));
-    if (e === OWNER) { sv = cleanSave(m.save, true); if (!sv) return this.fail(p, 'Data lokal tidak valid, tidak bisa dipautkan.'); }
+    if (isOwner(e)) { sv = cleanSave(m.save, true); if (!sv) return this.fail(p, 'Data lokal tidak valid, tidak bisa dipautkan.'); }
     const salt = crypto.randomBytes(16).toString('hex');
     AC[e] = { salt, hash: hashPw(m.pw, salt), pid: p.id, save: sv, at: Date.now(), ths: [], g: m.g, av: m.av };
-    try { await this.session(p, e, e !== OWNER); }
+    try { await this.session(p, e, !isOwner(e)); }
     catch (x) { delete AC[e]; dirty.acc.delete(e); console.error('reg gagal:', x.message); this.fail(p, 'Server gagal menyimpan akun ke database. Coba lagi sebentar lagi.'); }
   }
   // Gender hanya boleh diset SEKALI (akun lama yang belum punya) dan tidak bisa diubah lagi. Avatar boleh diganti.
@@ -311,6 +327,52 @@ class Hub {
     try { await persist('acc', p.acc); }
     catch (x) { a.g = og; a.av = oa; if (og === undefined) delete a.g; return this.send(p, { t: 'gen', ok: 0, msg: 'Server gagal menyimpan. Coba lagi.' }); }
     this.send(p, { t: 'gen', ok: 1, g: a.g, av: a.av | 0 });
+  }
+  async redeem(p, m) {
+    const a = p.acc && AC[p.acc]; if (!a) return this.send(p, { t: 'rdm', ok: 0, msg: 'Masuk akun dulu.' });
+    const now = Date.now(); if (now - (p.rdT || 0) < 2000) return this.send(p, { t: 'rdm', ok: 0, msg: 'Terlalu cepat. Tunggu sebentar.' }); p.rdT = now;
+    const code = String(m.c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16), c = codeStore()[code];
+    if (!c || (c.exp && c.exp < now) || c.u.length >= c.max || c.u.includes(p.acc)) return this.send(p, { t: 'rdm', ok: 0, msg: 'Kode tidak valid, sudah dipakai, atau kedaluwarsa.' });
+    c.u.push(p.acc); mark('meta', 'rdm');
+    if (c.v && !a.vf) { a.vf = 1; try { await persist('acc', p.acc); } catch (e) { /* akan tersimpan pada flush berikutnya */ mark('acc', p.acc); } }
+    this.send(p, { t: 'rdm', ok: 1, g: c.g, d: c.d, v: c.v ? 1 : 0 });
+  }
+  async admin(p, m) {
+    if (!isOwner(p.acc)) return this.send(p, { t: 'adm', ok: 0, msg: 'Tidak diizinkan.' });
+    const S = (extra) => this.send(p, Object.assign({ t: 'adm', ok: 1, a: m.a, codes: Object.entries(codeStore()).map(([k, c]) => ({ c: k, g: c.g, d: c.d, v: c.v, max: c.max, used: c.u.length, exp: c.exp || 0 })),
+      mails: mailStore().slice(-30).reverse().map(x => ({ id: x.id, to: x.to, t: x.t, ts: x.ts, g: x.gold || 0, d: x.dia || 0 })) }, extra || {}));
+    const fail = msg => this.send(p, { t: 'adm', ok: 0, a: m.a, msg });
+    switch (m.a) {
+      case 'list': return S();
+      case 'cnew': {
+        let code = String(m.c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16);
+        if (!code) code = crypto.randomBytes(5).toString('hex').toUpperCase().slice(0, 8);
+        if (code.length < 4) return fail('Kode minimal 4 karakter (A-Z, 0-9).');
+        const st = codeStore(); if (st[code]) return fail('Kode sudah ada.');
+        const g = clampI(m.g, 0, 1e7), d = clampI(m.d, 0, 1e5), v = m.v ? 1 : 0, max = clampI(m.max || 1, 1, 1e6), days = clampI(m.days, 0, 3650);
+        if (!g && !d && !v) return fail('Isi gold, diamond, atau verified.');
+        st[code] = { g, d, v, max, u: [], exp: days ? Date.now() + days * 864e5 : 0, at: Date.now() }; mark('meta', 'rdm'); return S({ made: code });
+      }
+      case 'cdel': { const st = codeStore(), code = String(m.c || '').toUpperCase(); if (st[code]) { delete st[code]; mark('meta', 'rdm'); } return S(); }
+      case 'mail': {
+        const to = String(m.to || '').trim().toLowerCase(), t = clean(m.sub, 60), b = String(m.b || '').slice(0, 800).trim();
+        if (!t || !b) return fail('Judul dan isi mail wajib diisi.');
+        if (to !== '*' && !AC[to]) return fail('Username tujuan tidak ditemukan.');
+        const l = mailStore(), id = 'a' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
+        l.push({ id, to, t, b, ts: Date.now(), exp: clampI(m.days, 0, 3650) ? Date.now() + clampI(m.days, 0, 3650) * 864e5 : 0, gold: clampI(m.g, 0, 5e5), dia: clampI(m.d, 0, 1e4) });
+        while (l.length > 300) l.shift(); mark('meta', 'mls');
+        for (const x of this.P.values()) if (x.acc && (to === '*' || x.acc === to)) this.send(x, { t: 'mails', list: mailsFor(x.acc) });
+        return S({ sent: to === '*' ? 'semua pemain' : to });
+      }
+      case 'mdel': { const l = mailStore(), i = l.findIndex(x => x.id === m.id); if (i >= 0) { l.splice(i, 1); mark('meta', 'mls'); for (const x of this.P.values()) if (x.acc) this.send(x, { t: 'mails', list: mailsFor(x.acc) }); } return S(); }
+      case 'vf': {
+        const u = String(m.u || '').trim().toLowerCase(), a = AC[u]; if (!a) return fail('Username tidak ditemukan.');
+        a.vf = m.on ? 1 : 0; try { await persist('acc', u); } catch (e) { mark('acc', u); }
+        for (const x of this.P.values()) if (x.acc === u) this.send(x, { t: 'vf', vf: a.vf });
+        return S({ vfDone: u + (a.vf ? ' terverifikasi' : ' verifikasi dicabut') });
+      }
+    }
+    fail('Perintah tidak dikenal.');
   }
   async login(p, m) {
     const now = Date.now();
@@ -334,7 +396,7 @@ class Hub {
     const h = sha(t), e = TKI.get(h), a = e && AC[e];
     if (!a) return bad();
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: e === OWNER ? 1 : 0, top: topTitles(e), g: a.g || '', av: a.av | 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
 
   // ----- Simpan cloud -----
@@ -342,7 +404,7 @@ class Hub {
     const a = p.acc && AC[p.acc], now = Date.now();
     if (!a || a.pid !== p.id) return this.send(p, { t: 'svr', ok: 0, msg: 'Belum masuk akun.' });
     if (now - (p.svt || 0) < 2000) return; // terlalu sering: abaikan, klien akan mengulang
-    const s = cleanSave(m.save, p.acc === OWNER);
+    const s = cleanSave(m.save, isOwner(p.acc));
     if (!s) { p.svt = now; return this.send(p, { t: 'svr', ok: 0, msg: 'Data ditolak server.' }); }
     const c = a.save;
     if (c) { s.stp = Math.max(s.stp || 0, c.stp || 0); s.end = (s.end || 0) | (c.end || 0); } // progres Story tidak boleh mundur
@@ -362,7 +424,7 @@ class Hub {
     let s = null;
     // Valid hanya jika: akun yang masuk = pemilik data, dan data benar-benar dikeluarkan server ini (tanda tangan cocok).
     if (a && b && typeof b === 'object' && b.u === p.acc && b.s && typeof b.s === 'object') {
-      const c = cleanSave(b.s, p.acc === OWNER);
+      const c = cleanSave(b.s, isOwner(p.acc));
       if (c) {
         const sigOk = b.v === 2 && typeof b.sig === 'string' && typeof b.t === 'number' && b.t <= now + 60000 && safeEq(b.sig, sign({ v: 2, u: b.u, t: b.t, s: b.s }));
         const legacy = !b.sig && (a.snaps || []).includes(hashSave(b.s)); // ekspor lama
@@ -520,6 +582,14 @@ class Hub {
   }
   hp(mt) { const m = { t: 'hp', h: Object.assign({}, mt.hp) }; for (const x of mt.ps) this.send(x, m); }
   teamHp(mt, t) { let s = 0; for (const x of mt.ps) if (mt.tm[x.id] === t) s += mt.hp[x.id]; return s; }
+  // statistik seumur hidup untuk layar Profil: total menang/kalah, streak, rating tertinggi, pemakaian senjata
+  stat(x, r, win) {
+    if (r.tw === undefined) { r.tw = Math.max(0, (r.w || 0) - (win ? 1 : 0)); r.tl = Math.max(0, (r.l || 0) - (win ? 0 : 1)); }
+    if (win) { r.tw++; r.st = (r.st || 0) + 1; r.bs = Math.max(r.bs || 0, r.st); } else { r.tl++; r.st = 0; }
+    r.pk = Math.max(r.pk || 1000, r.r);
+    const a = x.acc && AC[x.acc], k = a && a.save && KAT.includes(a.save.eq) ? a.save.eq : 'biasa';
+    r.wp = r.wp || {}; const q = r.wp[k] || (r.wp[k] = { u: 0, w: 0 }); q.u++; if (win) q.w++;
+  }
   // wt = tim pemenang (0/1), null = seri. Elo dihitung dari rata-rata rating tiap tim; rating dipakai bersama untuk 1v1 dan 2v2.
   end(mt, wt) {
     if (mt.done) return; mt.done = 1; this.M.delete(mt);
@@ -529,8 +599,8 @@ class Hub {
       const W = mt.ps.filter(x => mt.tm[x.id] === wt), L = mt.ps.filter(x => mt.tm[x.id] !== wt);
       const avg = t => t.reduce((a, x) => a + this.rec(x).r, 0) / t.length;
       const E = 1 / (1 + Math.pow(10, (avg(L) - avg(W)) / 400)), d = Math.max(1, Math.round(32 * (1 - E)));
-      for (const x of W) { const r = this.rec(x); r.r += d; r.w++; delta[x.id] = d; mark('rat', x.id); }
-      for (const x of L) { const r = this.rec(x), dl = Math.min(d, r.r); r.r -= dl; r.l++; delta[x.id] = -dl; mark('rat', x.id); }
+      for (const x of W) { const r = this.rec(x); r.r += d; r.w++; delta[x.id] = d; this.stat(x, r, 1); mark('rat', x.id); }
+      for (const x of L) { const r = this.rec(x), dl = Math.min(d, r.r); r.r -= dl; r.l++; delta[x.id] = -dl; this.stat(x, r, 0); mark('rat', x.id); }
     }
     const ws = (wt === 0 || wt === 1) ? mt.ps.filter(x => mt.tm[x.id] === wt).map(x => x.id) : [];
     for (const x of mt.ps) { const r = this.rec(x); this.send(x, { t: 'end', mode: mt.mode, w: ws[0] || null, ws, r: r.r, d: delta[x.id] || 0, wins: r.w, losses: r.l }); }
