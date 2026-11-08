@@ -770,7 +770,7 @@ if (require.main === module) {
       ws.on('close', () => hub.close(p));
       ws.on('error', () => {});
     });
-    server.listen(PORT, () => console.log('Slayer Online siap di port ' + PORT));
+    server.listen(PORT, '0.0.0.0', () => console.log('Slayer Online siap di port ' + PORT));
     // Simpan semua yang tertunda sebelum proses berhenti (Render mengirim SIGTERM saat redeploy).
     const stop = async () => { setTimeout(() => process.exit(1), 8000).unref(); try { await flush(true); } catch (e) {} process.exit(0); };
     process.on('SIGTERM', stop); process.on('SIGINT', stop);
