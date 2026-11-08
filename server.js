@@ -752,10 +752,21 @@ if (require.main === module) {
     const wss = new WebSocketServer({ server, maxPayload: 65536, perMessageDeflate: false });
     const hub = new Hub();
     setInterval(() => hub.tick(), 1000);
+    // Pantau keterlambatan event-loop (server yang sibuk/di-throttle menambah ping). Dikirim ke klien di pong.
+    let LAG = 0, LAGMAX = 0, lagT = Date.now();
+    setInterval(() => { const n = Date.now(), d = Math.max(0, n - lagT - 250); lagT = n; LAG = d; LAGMAX = Math.max(LAGMAX * 0.9, d); if (d > 150) console.warn('Event-loop lag ' + d + 'ms'); }, 250).unref();
+    // Heartbeat: jaga koneksi tetap hangat lewat proxy hosting & buang koneksi mati.
+    setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate(); } catch (e) {} continue; } c.isAlive = false; try { c.ping(); } catch (e) {} } }, 20000).unref();
+    server.keepAliveTimeout = 65000; server.headersTimeout = 66000;
     wss.on('connection', ws => {
       const p = hub.connect(ws);
-      try { ws._socket.setNoDelay(true); } catch (e) {}
-      ws.on('message', d => { let m; try { m = JSON.parse(d); } catch (e) { return; } try { hub.handle(p, m); } catch (e) { console.error(e); } });
+      ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; });
+      try { ws._socket.setNoDelay(true); ws._socket.setKeepAlive(true, 20000); } catch (e) {}
+      ws.on('message', d => {
+        ws.isAlive = true;
+        // Jalur cepat ping: dibalas langsung tanpa parse penuh/antre.
+        if (d.length < 120) { const q = d.toString(); if (q.indexOf('"t":"ping"') > 0) { let ts = 0; try { ts = JSON.parse(q).ts; } catch (e) { return; } try { ws.send('{"t":"pong","ts":' + (+ts || 0) + ',"lag":' + Math.round(LAGMAX) + '}'); } catch (e) {} return; } }
+        let m; try { m = JSON.parse(d); } catch (e) { return; } try { hub.handle(p, m); } catch (e) { console.error(e); } });
       ws.on('close', () => hub.close(p));
       ws.on('error', () => {});
     });
