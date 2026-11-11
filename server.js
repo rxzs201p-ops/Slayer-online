@@ -75,14 +75,24 @@ const EV = { start: Date.UTC(2026, 10, 4), days: 90, need: 30, test: false }; //
 // Contoh pampasan bug:  { id: 'komp-bug1', t: 'Pampasan bug', b: 'Maaf atas gangguan kemarin.', ts: Date.UTC(2026,10,5), gold: 500, dia: 20 }
 const MAILS = (() => { let a = []; try { a = JSON.parse(process.env.MAILS_JSON || '[]'); } catch (e) {} return a.concat([
   { id: 'open-world', t: 'Kabar dari Developer', b: '*Open world*_ akan hadir dalam kurun waktu terdekat, silakan menikmati gamenya._\n\n ~developer Slayer online~', ts: Date.UTC(2026, 10, 5, 12), gold: 0, dia: 0 },
+  { id: 'gacha-skin1', t: 'Event Gacha Skin Premium!', b: 'Skin Spear "Naga Putih" dan skin Kunai "Nebula Sabit" hadir di Gacha Skin (menu GACHA di lobi).\n\nRoda 10 hadiah: tiap putaran mengeluarkan 1 hadiah yang tidak akan berulang, harga naik tiap putaran (💎9, 18, 25, 55, 80, 190, 240, 340, 500, 620). Skin pasti keluar paling lambat di putaran ke-10!\nEvent berlangsung 7 hari.', ts: Date.UTC(2026, 10, 8), exp: Date.UTC(2026, 10, 15), gold: 0, dia: 0 },
   { id: 'welcome', t: 'Selamat datang di Slayer Online!', b: 'Cek mail ini untuk kabar update, event, dan hadiah dari dev.', ts: Date.UTC(2026, 10, 5), gold: 0, dia: 0 },
 ]); })();
 const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'tombak', 'kunai', 'spidey', 'punch', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
-const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']).concat(['tombak3', 'kunai3']); // skin gacha premium (event 7 hari)
+const GSKIDS = ['tombak3', 'kunai3']; // skin premium event Gacha (7 hari) — hanya didapat dari gacha, tidak dijual di kedai
+const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']).concat(GSKIDS);
 // ===== MAIL DINAMIS (dari panel admin) + KODE REDEEM =====
 const mailStore = () => { if (!META.mls || !Array.isArray(META.mls.l)) META.mls = { l: [] }; return META.mls.l; };
 const mailsFor = acc => mailStore().filter(x => (x.to === '*' || x.to === acc) && (!x.exp || x.exp > Date.now()))
   .map(x => ({ id: x.id, t: x.t, b: x.b, ts: x.ts, exp: x.exp || 0, gold: x.gold || 0, dia: x.dia || 0, k: 'dev' }));
+// ===== EVENT GACHA (roda 10 putaran, skin terjamin) — diatur dari panel admin =====
+// Tiap event: id, n (nama), sk (id skin), st/en (UTC ms), rd (putaran event: naik tiap "rerun" → progres roda semua pemain mulai ulang), on (1/0), pr (harga tiap putaran).
+const GPR = [9, 18, 25, 55, 80, 190, 240, 340, 500, 620]; // harga putaran dalam Diamond (satu-satunya pemakaian diamond)
+const gacStore = () => {
+  if (!META.gac || !Array.isArray(META.gac.l)) { META.gac = { l: [{ id: 'g1', n: 'Skin Kunai & Spear', sk: ['tombak3', 'kunai3'], st: Date.UTC(2026, 10, 8), en: Date.UTC(2026, 10, 15), rd: 1, on: 1, pr: GPR }] }; mark('meta', 'gac'); }
+  return META.gac.l;
+};
+const gacPub = () => gacStore().map(e => ({ id: e.id, n: e.n, sk: e.sk, st: e.st, en: e.en, rd: e.rd | 0, on: e.on ? 1 : 0, pr: e.pr }));
 const codeStore = () => { if (!META.rdm || typeof META.rdm.c !== 'object') META.rdm = { c: {} }; return META.rdm.c; };
 const clampI = (v, a, b) => Math.max(a, Math.min(b, Math.floor(+v || 0)));
 // ===== SURVIVAL + RESET MINGGUAN + GELAR TOP =====
@@ -126,15 +136,15 @@ function cleanSave(s, owner) {
     const up = {};
     if (s.up && typeof s.up === 'object') for (const k of KAT) if (s.up[k] !== undefined) up[k] = int(s.up[k], 0, 10);
     const idx = v => (Number.isInteger(v) && v >= 0 && v < gear.length) ? v : undefined;
-    const evk = int(s.evk, 0, EV.need), lgc = int(s.lg && s.lg.c, 0, 20); // login harian: One Punch hanya sah bila 20 hari terkumpul
+    const evk = int(s.evk, 0, EV.need), lgc = int(s.lg && s.lg.c, 0, 20), gcn = int(s.gc, 0, 9999); // gcn = total gacha; skin gacha hanya sah bila pernah gacha // login harian: One Punch hanya sah bila 20 hari terkumpul
     const mlOk = Array.isArray(s.ml) ? s.ml.filter(x => typeof x === 'string' && /^[a-z0-9_-]{1,24}!?$/i.test(x)).slice(-80) : []; // kill Classic event; Spidey hanya sah bila misi selesai
     const o = {
       lvl: int(s.lvl, 1, 300), xp: num(s.xp, 0, 1e7), hp: num(s.hp, 0, 1e5, 80), mp: num(s.mp, 0, 1e4, 38),
-      gold: int(s.gold, 0, 5e6), dia: int(s.dia, 0, 1e5), pots: int(s.pots, 0, 99999),
+      gold: int(s.gold, 0, 5e6), dia: int(s.dia, 0, 1e5), frag: int(s.frag, 0, 1e5), pots: int(s.pots, 0, 99999),
       qi: int(s.qi, 0, 50), qc: int(s.qc, 0, 99),
       eq: KAT.includes(s.eq) && (s.eq !== 'spidey' || evk >= EV.need || EV.test) && (s.eq !== 'punch' || lgc >= 20) ? s.eq : 'biasa', evk, gear, up, ea: idx(s.ea), eb: idx(s.eb),
       sk: uniq(s.sk, SKIN), skin: SKIN.includes(s.skin) ? s.skin : undefined,
-      ksk: uniq(s.ksk, KSKIDS), kse: (() => { const r = {}; if (s.kse && typeof s.kse === 'object') for (const w of KAT) { const v = s.kse[w]; if (typeof v === 'string' && KSKIDS.includes(v) && v.startsWith(w) && v.length === w.length + 1) r[w] = v; } return r; })(),
+      ksk: uniq(s.ksk, KSKIDS).filter(x => !GSKIDS.includes(x) || gcn >= 1), gc: gcn, gp: int(s.gp, 0, 49), gw: (() => { const w = s.gw, r = {}; if (!w || typeof w !== 'object') return undefined; for (const [k0, v] of Object.entries(w).slice(0, 8)) { const k = clean(k0, 24); if (!k || !v || typeof v !== 'object') continue; const ws = [...new Set((Array.isArray(v.w) ? v.w : []).filter(x => Number.isInteger(x) && x >= 0 && x < 10))].slice(0, 10); r[k] = { n: Math.min(10, Math.max(ws.length, int(v.n, 0, 10))), w: ws }; } return r; })(), kse: (() => { const r = {}; if (s.kse && typeof s.kse === 'object') for (const w of KAT) { const v = s.kse[w]; if (typeof v === 'string' && KSKIDS.includes(v) && v.startsWith(w) && v.length === w.length + 1 && (!GSKIDS.includes(v) || gcn >= 1)) r[w] = v; } return r; })(),
       dinv: uniq(s.dinv, KAT).filter(x => x !== 'spidey' || evk >= EV.need || EV.test).filter(x => x !== 'punch' || lgc >= 20), best: int(s.best, 0, 200),
       ti: uniq(s.ti, TIT), title: TIT.includes(s.title) ? s.title : undefined,
       name: clean(s.name, 14) || undefined, rk: s.rk === undefined ? undefined : num(s.rk, 0, 5000, 1000),
@@ -142,7 +152,6 @@ function cleanSave(s, owner) {
       stp: int(s.stp, 0, 6, 0), end: int(s.end, 0, 7, 0), // progres Story
       kh: (Array.isArray(s.kh) ? s.kh : []).slice(0, 6).map(v => int(v, -60, 60, 0)), kp: (Array.isArray(s.kp) ? s.kp : []).slice(0, 6).map(v => int(v, -60, 60, 0)), // skor dialog (penentu ending)
       lend: int(s.lend, 0, 3, 0),
-      gc: int(s.gc, 0, 1e5, 0), gp: int(s.gp, 0, 49, 0), // jumlah gacha & pity event gacha
       lg: { c: lgc, d: int(s.lg && s.lg.d, 0, 99999, 0) }, ml: mlOk, // login harian + mail yang sudah dibaca/diambil // ending terakhir → reputasi Season 2 (1=A pahlawan gugur, 2=B pahlawan, 3=C pengkhianat)
     };
     return o;
@@ -165,11 +174,12 @@ const FRESH = { lvl: 1, xp: 0, hp: 80, mp: 38, gold: 0, pots: 0, dia: 0, qi: 0, 
 const OWNERS = new Set((process.env.OWNER_USERS || 'razzz,razz').split(',').map(x => x.trim().toLowerCase()).filter(Boolean));
 const isOwner = e => OWNERS.has(e);
 
+const FR_MAX = 50;
 const MAXHP = 1000, SEC1 = 150, SEC2 = 180, MAXDMG = 600, MAXHEAL = 300;
 const FAILS = new Map(); // percobaan login gagal per username (di memori)
 
 class Hub {
-  constructor() { this.P = new Map(); this.q = []; this.q2 = []; this.PT = new Map(); this.M = new Set(); }
+  constructor() { this.P = new Map(); this.q = []; this.q2 = []; this.IV = new Map(); this.M = new Set(); }
   send(p, m) { if (p && p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify(m)); }
   all(m, except) { for (const p of this.P.values()) if (p !== except) this.send(p, m); }
   rec(p) { return DB[p.id] || (DB[p.id] = { n: p.n, r: 1000, w: 0, l: 0 }); }
@@ -208,7 +218,10 @@ class Hub {
       case 'ping': this.send(p, { t: 'pong', ts: m.ts }); break;
       case 'chat': this.all({ t: 'chat', n: p.n, msg: clean(m.msg, 80) }, p); break;
       case 'queue': if (!(p.acc && AC[p.acc] && AC[p.acc].g)) { this.send(p, { t: 'pcancel' }); this.send(p, { t: 'gate' }); break; } this.queue(p, m.mode === 2 ? 2 : 1); break;
-      case 'party': this.party(p, m); break;
+      case 'fr': this.fr(p, m).catch(() => this.send(p, { t: 'fr', err: 'Server gagal memproses. Coba lagi.' })); break;
+      case 'inv': this.inv(p, m); break;
+      case 'lap': this.lap(p, m); break; // tampilan karakter di lobi (senjata, skin, skin katana) — divalidasi whitelist
+      case 'ps': p.busy = m.s ? 1 : 0; break; // sedang main mode solo (Classic/Survival/Story)
       case 'rdy': {
         const mt = p.m;
         if (mt && !mt.go) { mt.rd.add(p.id); if (mt.rd.size >= mt.ps.length) { mt.go = 1; mt.goAt = Date.now() + 3000; const g = { t: 'go', in: 3 }; for (const x of mt.ps) this.send(x, g); } }
@@ -302,7 +315,7 @@ class Hub {
     try { await persist('acc', e); }
     catch (x) { a.ths = a.ths.filter(y => y !== h); TKI.delete(h); throw x; }
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), gac: gacPub(), save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
   async reg(p, m) {
     const e = String(m.e || '').trim().toLowerCase();
@@ -341,7 +354,8 @@ class Hub {
   async admin(p, m) {
     if (!isOwner(p.acc)) return this.send(p, { t: 'adm', ok: 0, msg: 'Tidak diizinkan.' });
     const S = (extra) => this.send(p, Object.assign({ t: 'adm', ok: 1, a: m.a, codes: Object.entries(codeStore()).map(([k, c]) => ({ c: k, g: c.g, d: c.d, v: c.v, max: c.max, used: c.u.length, exp: c.exp || 0 })),
-      mails: mailStore().slice(-30).reverse().map(x => ({ id: x.id, to: x.to, t: x.t, ts: x.ts, g: x.gold || 0, d: x.dia || 0 })) }, extra || {}));
+      mails: mailStore().slice(-30).reverse().map(x => ({ id: x.id, to: x.to, t: x.t, ts: x.ts, g: x.gold || 0, d: x.dia || 0 })), gac: gacPub(), gsk: GSKIDS }, extra || {}));
+    const gBc = () => { mark('meta', 'gac'); this.all({ t: 'gac', list: gacPub() }); };
     const fail = msg => this.send(p, { t: 'adm', ok: 0, a: m.a, msg });
     switch (m.a) {
       case 'list': return S();
@@ -365,7 +379,34 @@ class Hub {
         for (const x of this.P.values()) if (x.acc && (to === '*' || x.acc === to)) this.send(x, { t: 'mails', list: mailsFor(x.acc) });
         return S({ sent: to === '*' ? 'semua pemain' : to });
       }
-      case 'mdel': { const l = mailStore(), i = l.findIndex(x => x.id === m.id); if (i >= 0) { l.splice(i, 1); mark('meta', 'mls'); for (const x of this.P.values()) if (x.acc) this.send(x, { t: 'mails', list: mailsFor(x.acc) }); } return S(); }
+      case 'mdel': { const l = mailStore(), i = l.findIndex(x => x.id === m.mid); if (i >= 0) { l.splice(i, 1); mark('meta', 'mls'); for (const x of this.P.values()) if (x.acc) this.send(x, { t: 'mails', list: mailsFor(x.acc) }); } return S(); }
+      case 'gnew': {
+        const sk = (Array.isArray(m.sk) ? m.sk : []).filter((x, i, a) => GSKIDS.includes(x) && a.indexOf(x) === i);
+        if (!sk.length) return fail('Pilih minimal 1 skin.');
+        const days = clampI(m.days, 1, 365), n = clean(m.n, 40) || 'Event Gacha';
+        let pr = Array.isArray(m.pr) ? m.pr.slice(0, 10).map(v => clampI(v, 1, 99999)) : [];
+        if (pr.length !== 10 || pr.some(v => !v)) pr = GPR.slice();
+        const l = gacStore(), id = 'g' + Date.now().toString(36);
+        l.push({ id, n, sk, st: Date.now(), en: Date.now() + days * 864e5, rd: 1, on: 1, pr });
+        while (l.length > 30) l.shift(); gBc();
+        return S({ gDone: 'Event "' + n + '" dibuat (' + days + ' hari).' });
+      }
+      case 'grerun': {
+        const e = gacStore().find(x => x.id === m.gid); if (!e) return fail('Event tidak ditemukan.');
+        const days = clampI(m.days, 1, 365) || Math.max(1, Math.round((e.en - e.st) / 864e5));
+        e.st = Date.now(); e.en = Date.now() + days * 864e5; e.rd = (e.rd | 0) + 1; e.on = 1; gBc();
+        return S({ gDone: 'Event "' + e.n + '" dijalankan ulang (' + days + ' hari). Roda semua pemain direset.' });
+      }
+      case 'gtog': {
+        const e = gacStore().find(x => x.id === m.gid); if (!e) return fail('Event tidak ditemukan.');
+        e.on = e.on ? 0 : 1; gBc();
+        return S({ gDone: 'Event "' + e.n + '" ' + (e.on ? 'ditampilkan' : 'disembunyikan') + '.' });
+      }
+      case 'gdel': {
+        const l = gacStore(), i = l.findIndex(x => x.id === m.gid); if (i < 0) return fail('Event tidak ditemukan.');
+        const n = l[i].n; l.splice(i, 1); gBc();
+        return S({ gDone: 'Event "' + n + '" dihapus.' });
+      }
       case 'vf': {
         const u = String(m.u || '').trim().toLowerCase(), a = AC[u]; if (!a) return fail('Username tidak ditemukan.');
         a.vf = m.on ? 1 : 0; try { await persist('acc', u); } catch (e) { mark('acc', u); }
@@ -397,7 +438,7 @@ class Hub {
     const h = sha(t), e = TKI.get(h), a = e && AC[e];
     if (!a) return bad();
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), top: topTitles(e), g: a.g || '', av: a.av | 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), gac: gacPub(), top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
 
   // ----- Simpan cloud -----
@@ -440,28 +481,111 @@ class Hub {
     this.send(p, { t: 'imp', ok: 1, save: s });
   }
 
-  // ----- Party 2v2: kode 4 karakter, maksimal 2 pemain -----
-  ptSend(pt) { const m = { t: 'pty', code: pt.code, ms: pt.ms.map(x => x.n) }; for (const x of pt.ms) this.send(x, m); }
-  ptLeave(p) {
-    const pt = p.pt; if (!pt) return;
-    this.dequeue(p);
-    p.pt = null; pt.ms = pt.ms.filter(x => x !== p);
-    if (!pt.ms.length) this.PT.delete(pt.code); else this.ptSend(pt);
-    this.send(p, { t: 'pty', code: null, ms: [] });
+  // ----- Rakan (daftar teman): tambah lewat username, permintaan harus diterima -----
+  byAcc(u) { for (const x of this.P.values()) if (x.acc === u) return x; return null; }
+  frInfo(u) {
+    const a = AC[u]; if (!a) return null;
+    const x = this.byAcc(u), r = DB[a.pid] || { n: u, r: 1000 };
+    return { u, n: x ? x.n : (r.n || u), on: x ? ((x.m || x.busy) ? 2 : 1) : 0, r: r.r, av: a.av | 0, g: a.g || '', vf: a.vf ? 1 : 0, lb: x && x.lb && x.lb.ms.length > 1 ? 1 : 0 };
   }
-  party(p, m) {
-    if (m.a === 'leave') return this.ptLeave(p);
-    if (p.m) return;
-    if (m.a === 'new') {
-      this.ptLeave(p);
-      const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let code;
-      do { code = ''; for (let i = 0; i < 4; i++) code += A[crypto.randomInt(A.length)]; } while (this.PT.has(code));
-      const pt = { code, ms: [p] }; this.PT.set(code, pt); p.pt = pt; this.ptSend(pt);
-    } else if (m.a === 'join') {
-      const pt = this.PT.get(String(m.code || '').trim().toUpperCase());
-      if (pt && pt.ms.includes(p)) return;
-      if (!pt || pt.ms.length >= 2) return this.send(p, { t: 'pty', err: 'Kode tidak ditemukan atau party penuh.', code: p.pt ? p.pt.code : null, ms: p.pt ? p.pt.ms.map(x => x.n) : [] });
-      this.ptLeave(p); pt.ms.push(p); p.pt = pt; this.ptSend(pt);
+  frList(p) {
+    const a = AC[p.acc]; a.fr = a.fr || []; a.frq = a.frq || [];
+    const list = a.fr.map(u => this.frInfo(u)).filter(Boolean).sort((x, y) => (y.on > 0) - (x.on > 0) || x.n.localeCompare(y.n));
+    this.send(p, { t: 'fr', list, req: a.frq.map(u => this.frInfo(u)).filter(Boolean) });
+  }
+  async fr(p, m) {
+    const a = p.acc && AC[p.acc];
+    if (!a) return this.send(p, { t: 'fr', err: 'Masuk akun dulu.' });
+    a.fr = a.fr || []; a.frq = a.frq || [];
+    const u = String(m.u || '').trim().toLowerCase(), now = Date.now();
+    if (m.a === 'list') return this.frList(p);
+    if (!okUser(u)) return this.send(p, { t: 'fr', err: 'Username tidak valid.' });
+    const b = AC[u];
+    if (m.a === 'add') {
+      if (now - (p.frT || 0) < 1500) return this.send(p, { t: 'fr', err: 'Terlalu cepat. Tunggu sebentar.' }); p.frT = now;
+      if (!b) return this.send(p, { t: 'fr', err: 'Username tidak ditemukan.' });
+      if (u === p.acc) return this.send(p, { t: 'fr', err: 'Tidak bisa menambah diri sendiri.' });
+      if (a.fr.includes(u)) return this.send(p, { t: 'fr', err: 'Sudah berteman.' });
+      if (a.frq.includes(u)) return this.frAccept(p, a, u, b); // dia sudah meminta lebih dulu → langsung berteman
+      b.frq = b.frq || [];
+      if (b.frq.includes(p.acc)) return this.send(p, { t: 'fr', err: 'Permintaan sudah dikirim.' });
+      if (a.fr.length >= FR_MAX || b.fr && b.fr.length >= FR_MAX) return this.send(p, { t: 'fr', err: 'Daftar rakan penuh.' });
+      if (b.frq.length >= 30) return this.send(p, { t: 'fr', err: 'Pengguna itu menerima terlalu banyak permintaan.' });
+      b.frq.push(p.acc); await persist('acc', u);
+      const q = this.byAcc(u); if (q) { this.send(q, { t: 'fr', push: 'req', u: p.acc, n: p.n }); this.frList(q); }
+      return this.send(p, { t: 'fr', ok: 'Permintaan dikirim ke @' + u });
+    }
+    if (m.a === 'ok') { if (!a.frq.includes(u) || !b) return this.send(p, { t: 'fr', err: 'Permintaan tidak ditemukan.' }); return this.frAccept(p, a, u, b); }
+    if (m.a === 'no') { a.frq = a.frq.filter(x => x !== u); await persist('acc', p.acc); return this.frList(p); }
+    if (m.a === 'del') {
+      a.fr = a.fr.filter(x => x !== u); if (b) b.fr = (b.fr || []).filter(x => x !== p.acc);
+      mark('acc', p.acc); if (b) mark('acc', u);
+      const q = this.byAcc(u); if (q) this.frList(q);
+      return this.frList(p);
+    }
+  }
+  frAccept(p, a, u, b) {
+    a.frq = (a.frq || []).filter(x => x !== u);
+    if (!a.fr.includes(u)) a.fr.push(u);
+    b.fr = b.fr || []; if (!b.fr.includes(p.acc)) b.fr.push(p.acc);
+    b.frq = (b.frq || []).filter(x => x !== p.acc);
+    mark('acc', p.acc); mark('acc', u);
+    const q = this.byAcc(u); if (q) { this.send(q, { t: 'fr', push: 'acc', u: p.acc, n: p.n }); this.frList(q); }
+    this.send(p, { t: 'fr', ok: 'Kini berteman dengan @' + u }); this.frList(p);
+  }
+
+  // ----- Lobi tim (maks. 2 pemain) lewat undangan; pemimpin = yang mengundang -----
+  lap(p, m) {
+    const e = KAT.includes(m.e) ? m.e : 'biasa';
+    p.ap = { e, sk: SKIN.includes(m.sk) ? m.sk : '', ks: KSKIDS.includes(m.ks) && m.ks.startsWith(e) ? m.ks : '' };
+    if (p.lb && p.lb.ms.length > 1) this.lobSend(p.lb);
+  }
+  lobInfo(x, i) {
+    const a = (x.acc && AC[x.acc]) || {}, sv = a.save || {}, ap = x.ap || { e: KAT.includes(sv.eq) ? sv.eq : 'biasa', sk: SKIN.includes(sv.skin) ? sv.skin : '', ks: '' };
+    return { id: x.id, u: x.acc, n: x.n, g: a.g || 'm', av: a.av | 0, e: ap.e, sk: ap.sk, ks: ap.ks, r: this.rec(x).r, lv: sv.lvl | 0, vf: a.vf ? 1 : 0, host: i === 0 ? 1 : 0 };
+  }
+  lobSend(lb) { const ms = lb.ms.map((x, i) => this.lobInfo(x, i)); for (const x of lb.ms) this.send(x, { t: 'lob', ms }); }
+  lobLeave(p, kicked) {
+    const lb = p.lb; if (!lb) return;
+    this.dequeue(p);
+    lb.ms = lb.ms.filter(x => x !== p); p.lb = null;
+    this.send(p, { t: 'lob', ms: [], kicked: kicked ? 1 : 0 });
+    if (lb.ms.length < 2) for (const x of lb.ms) { x.lb = null; this.dequeue(x); this.send(x, { t: 'lob', ms: [], left: p.n }); lb.ms = []; }
+    else this.lobSend(lb);
+  }
+  free(x) { return x && !x.m && !this.inQ(x) && !x.busy; }
+  inv(p, m) {
+    const a = p.acc && AC[p.acc], err = msg => this.send(p, { t: 'inv', a: 'err', msg });
+    if (!a) return err('Masuk akun dulu.');
+    const u = String(m.u || '').trim().toLowerCase(), now = Date.now();
+    if (m.a === 'leave') return this.lobLeave(p);
+    if (m.a === 'kick') { const lb = p.lb; if (lb && lb.ms[0] === p && lb.ms[1]) this.lobLeave(lb.ms[1], true); return; }
+    if (m.a === 'send') {
+      if (!(a.fr || []).includes(u)) return err('Hanya rakan yang bisa diundang. Tambah rakan dulu.');
+      const q = this.byAcc(u);
+      if (!q) return err('@' + u + ' sedang luar talian.');
+      if (!this.free(p)) return err('Selesaikan permainan dulu sebelum mengundang.');
+      if (!this.free(q)) return err('@' + u + ' sedang bermain.');
+      if (p.lb && p.lb.ms.length >= 2) return err('Lobi sudah penuh.');
+      if (q.lb && q.lb.ms.length >= 2) return err('@' + u + ' sudah berada di lobi lain.');
+      const key = p.acc + '>' + u, ex = this.IV.get(key);
+      if (ex && ex > now) return err('Undangan sudah dikirim. Tunggu 60 detik.');
+      this.IV.set(key, now + 60000);
+      this.send(q, { t: 'inv', a: 'get', u: p.acc, n: p.n });
+      return this.send(p, { t: 'inv', a: 'sent', u, n: (this.frInfo(u) || {}).n || u });
+    }
+    if (m.a === 'no') { const x = this.byAcc(u); this.IV.delete(u + '>' + p.acc); if (x) this.send(x, { t: 'inv', a: 'no', n: p.n }); return; }
+    if (m.a === 'ok') {
+      const key = u + '>' + p.acc, exp = this.IV.get(key), x = this.byAcc(u);
+      if (!exp || exp < now) return err('Undangan sudah kedaluwarsa.');
+      this.IV.delete(key);
+      if (!x) return err('Pengundang sudah luar talian.');
+      if (!this.free(p) || !this.free(x)) return err('Tidak bisa bergabung: sedang bermain.');
+      if (x.lb && x.lb.ms.length >= 2) return err('Lobi sudah penuh.');
+      if (p.lb) this.lobLeave(p);
+      const lb = x.lb || (x.lb = { ms: [x] });
+      lb.ms.push(p); p.lb = lb; this.lobSend(lb);
+      return this.send(x, { t: 'inv', a: 'joined', n: p.n });
     }
   }
 
@@ -477,11 +601,17 @@ class Hub {
     if (p.m || this.inQ(p)) return;
     if (mode === 2) {
       let ps = [p];
-      if (p.pt && p.pt.ms.length === 2) { ps = p.pt.ms.slice(); if (ps.some(x => x.m || this.inQ(x))) return; }
+      if (p.lb && p.lb.ms.length === 2) {
+        if (p.lb.ms[0] !== p) { this.send(p, { t: 'pcancel' }); return this.send(p, { t: 'inv', a: 'err', msg: 'Hanya pemimpin lobi yang bisa memulai.' }); }
+        ps = p.lb.ms.slice(); if (ps.some(x => x.m || this.inQ(x) || x.busy)) { this.send(p, { t: 'pcancel' }); return this.send(p, { t: 'inv', a: 'err', msg: 'Rakan belum siap.' }); }
+      }
       this.q2.push({ ps, t: Date.now() });
       for (const x of ps) if (x !== p) this.send(x, { t: 'pq' });
       this.pair2();
-    } else { p.qt = Date.now(); this.q.push(p); this.pair(); }
+    } else {
+      if (p.lb && p.lb.ms.length > 1) { this.send(p, { t: 'pcancel' }); return this.send(p, { t: 'inv', a: 'err', msg: 'Keluar dari lobi tim dulu untuk Ranked 1v1.' }); }
+      p.qt = Date.now(); this.q.push(p); this.pair();
+    }
   }
   pair() {
     const now = Date.now();
@@ -537,7 +667,8 @@ class Hub {
   launch(ps, mode, teams) {
     const tm = {}, slot = {}, n = [0, 0];
     ps.forEach((x, i) => { const t = teams ? teams[i] : i; tm[x.id] = t; slot[x.id] = n[t]++; });
-    const mt = { ps, tm, slot, mode, hp: {}, t: mode === 2 ? SEC2 : SEC1, done: 0, go: 0, rd: new Set(), wt: 0 };
+    const mt = { ps, tm, slot, mode, hp: {}, t: mode === 2 ? SEC2 : SEC1, done: 0, go: 0, rd: new Set(), wt: 0, sc: {}, hit: {} };
+    for (const x of ps) mt.sc[x.id] = { k: 0, d: 0, a: 0, dmg: 0 };
     for (const x of ps) { mt.hp[x.id] = MAXHP; x.m = mt; x.db = null; x.dbt = 0; x.hl = 0; }
     this.M.add(mt);
     const info = x => ({ id: x.id, n: x.n, r: this.rec(x).r, side: tm[x.id], slot: slot[x.id] });
@@ -573,7 +704,15 @@ class Hub {
     const now = Date.now();
     p.db = Math.min(800, (p.db == null ? 800 : p.db) + (now - (p.dbt || now)) / 1000 * 300); p.dbt = now;
     d = Math.max(0, Math.min(MAXDMG, p.db, +d || 0)); p.db -= d;
-    mt.hp[o.id] = Math.max(0, mt.hp[o.id] - d);
+    const before = mt.hp[o.id], real = Math.min(before, d);
+    mt.hp[o.id] = Math.max(0, before - d);
+    if (real > 0) {
+      mt.sc[p.id].dmg += Math.round(real); (mt.hit[o.id] = mt.hit[o.id] || {})[p.id] = now;
+      if (mt.hp[o.id] <= 0) { // gugur: K untuk pelaku, D untuk korban, A untuk rekan yang ikut melukai (<10 dtk)
+        mt.sc[p.id].k++; mt.sc[o.id].d++;
+        for (const [aid, ts] of Object.entries(mt.hit[o.id])) if (aid !== p.id && now - ts < 10000 && mt.tm[aid] === mt.tm[p.id] && mt.sc[aid]) mt.sc[aid].a++;
+      }
+    }
     this.hp(mt);
     if (!mt.ps.some(x => mt.tm[x.id] !== mt.tm[p.id] && mt.hp[x.id] > 0)) this.end(mt, mt.tm[p.id]);
   }
@@ -604,7 +743,9 @@ class Hub {
       for (const x of L) { const r = this.rec(x), dl = Math.min(d, r.r); r.r -= dl; r.l++; delta[x.id] = -dl; this.stat(x, r, 0); mark('rat', x.id); }
     }
     const ws = (wt === 0 || wt === 1) ? mt.ps.filter(x => mt.tm[x.id] === wt).map(x => x.id) : [];
-    for (const x of mt.ps) { const r = this.rec(x); this.send(x, { t: 'end', mode: mt.mode, w: ws[0] || null, ws, r: r.r, d: delta[x.id] || 0, wins: r.w, losses: r.l }); }
+    const sc = mt.ps.map(x => { const a = (x.acc && AC[x.acc]) || {}, s = mt.sc[x.id] || { k: 0, d: 0, a: 0, dmg: 0 }; return { id: x.id, n: x.n, side: mt.tm[x.id], g: a.g || 'm', av: a.av | 0, r: this.rec(x).r, dl: delta[x.id] || 0, k: s.k, d: s.d, a: s.a, dmg: s.dmg }; });
+    const tsc = [0, 0]; for (const s of sc) tsc[s.side] += s.k;
+    for (const x of mt.ps) { const r = this.rec(x); this.send(x, { t: 'end', mode: mt.mode, w: ws[0] || null, ws, r: r.r, d: delta[x.id] || 0, wins: r.w, losses: r.l, sc, tsc, side: mt.tm[x.id] }); }
   }
   tick() {
     this.tc = (this.tc || 0) + 1;
@@ -624,7 +765,7 @@ class Hub {
   }
   close(p) {
     if (p.svT0) this.svEnd(p, 0);
-    this.dequeue(p); this.ptLeave(p);
+    this.dequeue(p); this.lobLeave(p);
     const mt = p.m;
     if (mt && !mt.done) { // pemain putus: dianggap gugur; jika seluruh timnya gugur, tim lawan menang
       mt.hp[p.id] = 0; mt.rd.add(p.id); p.m = null; this.hp(mt);
@@ -727,7 +868,15 @@ function handleReport(req, res) {
   });
 }
 // Service worker minimal: dipakai untuk menampilkan notifikasi lokal (pengingat login harian) dan membuka game saat notifikasi diketuk.
-const SW_JS = `self.addEventListener('install',e=>self.skipWaiting());
+const SW_JS = `const CACHE='slayer-shell-v1';
+self.addEventListener('install',e=>self.skipWaiting());
+// Cangkang halaman disimpan di HP: saat server hosting gratis sedang tidur (30-60 dtk), game tetap langsung tampil.
+self.addEventListener('fetch',e=>{const r=e.request;if(r.method!=='GET'||r.mode!=='navigate')return;
+ const u=new URL(r.url);if(u.origin!==location.origin||u.pathname!=='/')return;
+ e.respondWith((async()=>{const c=await caches.open(CACHE);const hit=await c.match('/');
+  const net=fetch(r).then(res=>{if(res&&res.ok)c.put('/',res.clone());return res}).catch(()=>null);
+  if(hit){e.waitUntil(net);return hit}
+  const res=await net;return res||new Response('Server sedang bangun, muat ulang sebentar lagi.',{status:503,headers:{'Content-Type':'text/plain; charset=utf-8'}})})())});
 self.addEventListener('activate',e=>e.waitUntil(self.clients.claim()));
 self.addEventListener('notificationclick',e=>{e.notification.close();e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(l=>{for(const c of l){if('focus' in c)return c.focus()}return self.clients.openWindow('/')}))});`;
 module.exports = { Hub, DB, AC, META, init, flush, persist, cleanSave, sign, sha, SW_JS, weeklyCheck, svBoard, topTitles };
@@ -737,29 +886,52 @@ if (require.main === module) {
   const { WebSocketServer } = require('ws');
   const PORT = process.env.PORT || 8080;
   (async () => {
-    await init();
-    console.log('Penyimpanan: ' + ({ postgres: 'PostgreSQL (permanen)', gas: 'Google Sheets via Apps Script (permanen)', file: 'FILE LOKAL (hilang saat redeploy di hosting gratis; isi GAS_URL + GAS_SECRET)' })[ST.kind] + ' | akun dimuat: ' + Object.keys(AC).length);
+    // Buka port LEBIH DULU supaya halaman & /health langsung terjangkau (Render memeriksa port).
+    // Database (Neon/GAS/file) dihubungkan di latar belakang dengan percobaan ulang.
+    let READY = false, INITERR = '';
+    const pending = [];
+    const bootDb = async () => {
+      for (let i = 1; ; i++) {
+        try { await init(); READY = true; INITERR = ''; break; }
+        catch (e) { INITERR = String(e && e.message || e); console.error('Database belum siap (percobaan ' + i + '):', INITERR); await new Promise(r => setTimeout(r, Math.min(15000, 2000 * i))); }
+      }
+    };
+    const afterInit0 = () => console.log('Penyimpanan: ' + ({ postgres: 'PostgreSQL (permanen)', gas: 'Google Sheets via Apps Script (permanen)', file: 'FILE LOKAL (hilang saat redeploy di hosting gratis; isi GAS_URL + GAS_SECRET)' })[ST.kind] + ' | akun dimuat: ' + Object.keys(AC).length);
+    const afterInit = afterInit0;
     // Server yang sama menyajikan game (index.html) dan menerima koneksi WebSocket.
+    // index.html dibaca sekali, dikompres gzip, lalu disajikan dari memori (file besar, HP lambat).
+    const zlib = require('zlib'); let IDX = null, IDXZ = null, IDXT = 0;
+    const sendIndex = (req, res) => {
+      const f = path.join(__dirname, 'index.html');
+      fs.stat(f, (e, st) => {
+        if (e) { res.writeHead(404); res.end('index.html tidak ditemukan'); return; }
+        const go = () => {
+          const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+          const h = { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', 'Vary': 'Accept-Encoding' };
+          if (gz) h['Content-Encoding'] = 'gzip';
+          res.writeHead(200, h); res.end(gz ? IDXZ : IDX);
+        };
+        if (IDX && IDXT === st.mtimeMs) return go();
+        fs.readFile(f, (e2, d) => { if (e2) { res.writeHead(500); res.end('gagal membaca index.html'); return; } IDX = d; IDXZ = zlib.gzipSync(d, { level: 9 }); IDXT = st.mtimeMs; go(); });
+      });
+    };
     const server = http.createServer((req, res) => {
-      if (req.url === '/health') { res.end('ok ' + ST.kind); return; }
+      if (req.url === '/health') { res.end('ok ' + (READY ? ST.kind : 'starting')); return; }
       if (req.url.split('?')[0] === '/sw.js') { res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); res.end(SW_JS); return; }
       if (req.method === 'POST' && req.url.split('?')[0] === '/report') { handleReport(req, res); return; }
       if (req.url.split('?')[0] === '/mail.json') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(MAILS)); return; }
-      fs.readFile(path.join(__dirname, 'index.html'), (e, d) => {
-        if (e) { res.writeHead(404); res.end('index.html tidak ditemukan'); return; }
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(d);
-      });
+      sendIndex(req, res);
     });
     const wss = new WebSocketServer({ server, maxPayload: 65536, perMessageDeflate: false });
     const hub = new Hub();
-    setInterval(() => hub.tick(), 1000);
+    setInterval(() => { if (READY) hub.tick(); }, 1000);
     // Pantau keterlambatan event-loop (server yang sibuk/di-throttle menambah ping). Dikirim ke klien di pong.
     let LAG = 0, LAGMAX = 0, lagT = Date.now();
     setInterval(() => { const n = Date.now(), d = Math.max(0, n - lagT - 250); lagT = n; LAG = d; LAGMAX = Math.max(LAGMAX * 0.9, d); if (d > 150) console.warn('Event-loop lag ' + d + 'ms'); }, 250).unref();
     // Heartbeat: jaga koneksi tetap hangat lewat proxy hosting & buang koneksi mati.
     setInterval(() => { for (const c of wss.clients) { if (c.isAlive === false) { try { c.terminate(); } catch (e) {} continue; } c.isAlive = false; try { c.ping(); } catch (e) {} } }, 20000).unref();
     server.keepAliveTimeout = 65000; server.headersTimeout = 66000;
-    wss.on('connection', ws => {
+    const setupConn = ws => {
       const p = hub.connect(ws);
       ws.isAlive = true; ws.on('pong', () => { ws.isAlive = true; });
       try { ws._socket.setNoDelay(true); ws._socket.setKeepAlive(true, 20000); } catch (e) {}
@@ -770,8 +942,15 @@ if (require.main === module) {
         let m; try { m = JSON.parse(d); } catch (e) { return; } try { hub.handle(p, m); } catch (e) { console.error(e); } });
       ws.on('close', () => hub.close(p));
       ws.on('error', () => {});
+    };
+    // Koneksi yang datang saat database belum siap ditahan sebentar, lalu dilayani setelah siap.
+    wss.on('connection', ws => {
+      if (READY) return setupConn(ws);
+      pending.push(ws); ws.on('error', () => {}); ws.on('message', d => { if (!READY) { try { if (String(d).indexOf('"t":"ping"') < 0) ws.send('{"t":"wait","msg":"Server sedang menyiapkan data, coba lagi sebentar…"}'); } catch (e) {} } });
+      try { ws.send('{"t":"wait","msg":"Server sedang menyiapkan data…"}'); } catch (e) {}
     });
-    server.listen(PORT, '0.0.0.0', () => console.log('Slayer Online siap di port ' + PORT));
+    server.listen(PORT, () => console.log('Slayer Online siap di port ' + PORT));
+    bootDb().then(() => { afterInit(); for (const ws of pending.splice(0)) if (ws.readyState === 1) setupConn(ws); });
     // Simpan semua yang tertunda sebelum proses berhenti (Render mengirim SIGTERM saat redeploy).
     const stop = async () => { setTimeout(() => process.exit(1), 8000).unref(); try { await flush(true); } catch (e) {} process.exit(0); };
     process.on('SIGTERM', stop); process.on('SIGINT', stop);
