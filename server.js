@@ -78,9 +78,43 @@ const MAILS = (() => { let a = []; try { a = JSON.parse(process.env.MAILS_JSON |
   { id: 'gacha-skin1', t: 'Event Gacha Skin Premium!', b: 'Skin Spear "Naga Putih" dan skin Kunai "Nebula Sabit" hadir di Gacha Skin (menu GACHA di lobi).\n\nRoda 10 hadiah: tiap putaran mengeluarkan 1 hadiah yang tidak akan berulang, harga naik tiap putaran (💎9, 18, 25, 55, 80, 190, 240, 340, 500, 620). Skin pasti keluar paling lambat di putaran ke-10!\nEvent berlangsung 7 hari.', ts: Date.UTC(2026, 10, 8), exp: Date.UTC(2026, 10, 15), gold: 0, dia: 0 },
   { id: 'welcome', t: 'Selamat datang di Slayer Online!', b: 'Cek mail ini untuk kabar update, event, dan hadiah dari dev.', ts: Date.UTC(2026, 10, 5), gold: 0, dia: 0 },
 ]); })();
-const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'tombak', 'kunai', 'spidey', 'punch', 'fenik', 'void'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
+const KAT = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'tombak', 'kunai', 'spidey', 'punch', 'fenik', 'void', 'eclipse'], TIT = ['ds', 'dr', 'pd', 'ls'], SKIN = ['fenik', 'void', 'sakura', 'zamrud', 'shogun', 'frost', 'lava', 'galaxy', 'naga'];
 const GSKIDS = ['tombak3', 'kunai3']; // skin premium event Gacha (7 hari) — hanya didapat dari gacha, tidak dijual di kedai
 const KSKIDS = ['biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram'].flatMap(w => [w + '1', w + '2']).concat(GSKIDS);
+
+// ===== PREMIUM SHOP & TOP-UP (uang sungguhan) =====
+// Harga dalam sen (RM 39,90 = 3990). Ubah lewat env PRICES_JSON, contoh: {"eclipse":500,"d10":100,"d50":500}
+const CUR = process.env.PAY_CURRENCY || 'MYR';
+const PRICES = (() => { try { return JSON.parse(process.env.PRICES_JSON || '{}'); } catch (e) { return {}; } })();
+const PREM = { eclipse: { n: 'Eclipse Reaver (SSS+)', sen: 500, grants: ['eclipse'] } }; // RM 5,00
+const TOPUP = { d10: { d: 10, bonus: 0, sen: 100 }, d20: { d: 20, bonus: 2, sen: 200 }, d30: { d: 30, bonus: 5, sen: 300 }, d50: { d: 50, bonus: 10, sen: 500 } }; // RM 1 ~ RM 5
+for (const k in PREM) if (PRICES[k] > 0) PREM[k].sen = Math.round(PRICES[k]);
+for (const k in TOPUP) if (PRICES[k] > 0) TOPUP[k].sen = Math.round(PRICES[k]);
+const PREMIDS = Object.values(PREM).flatMap(x => x.grants);
+const EMO = ['dop', 'pulse']; // 'dop' = Day of Playing (kedai, fragment) · 'pulse' = emote paket SSS+ (hanya pemilik Eclipse Reaver) // emote dibeli di shop dengan fragment (harga ada di klien)
+const PAY = { mode: process.env.PAY_MODE || 'manual', link: process.env.PAY_LINK || '', note: process.env.PAY_NOTE || 'Selesaikan pembayaran sesuai petunjuk admin dan cantumkan nomor referensi. Item masuk otomatis setelah pembayaran dikonfirmasi.', secret: process.env.PAY_SECRET || '' };
+
+// ===== MATCHMAKING 20 DETIK + BOT RANKED (bermain seperti manusia sesuai rank) =====
+// Tidak ada lawan sungguhan dalam 20 detik → server menurunkan bot. Bot ditandai "BOT" di layar pemain (flag bot:1) dan
+// perubahan rating melawan bot dikurangi (BOT_ELO). Perilaku bot: waktu reaksi, ketepatan, kombo, mundur/strafe, dash menghindar,
+// dan skill menyesuaikan rating (0 = Perunggu bawah … 1 = Berlian atas).
+const BOT_WAIT = +process.env.BOT_WAIT_MS || 20000, BOT_ELO = 0.6, BOT_NAMES = ['RizkyFF', 'Hafiz_YT', 'NaZmi', 'ArifZ', 'DanishX', 'SyafiqPro', 'Haikal88', 'Zulkifli', 'Aiman_', 'KenzoID', 'Farhan77', 'Irfan.GG', 'AmirulXD', 'BayuSlay', 'Dimas_ID', 'AlifTheOne', 'Zaqwan', 'Fikri99', 'RaihanPS', 'Nabil_YT', 'Haziq_01', 'SatriaXY', 'Wafi.PRO', 'Danial_M'];
+const BOT_WEAPONS = ['biasa', 'biasa', 'api', 'air', 'ais', 'magma', 'getah', 'kaca', 'kram', 'tombak', 'kunai'];
+const rnd = (a, b) => a + Math.random() * (b - a), pickOne = a => a[Math.floor(Math.random() * a.length)], cl01 = v => Math.max(0, Math.min(1, v));
+function mkBot(rating) {
+  const r = Math.max(600, Math.min(2600, Math.round(rating + rnd(-70, 70)))), s = cl01((r - 800) / 1100); // s: kemampuan 0..1
+  const id = 'BOT' + crypto.randomBytes(5).toString('hex'), g = Math.random() < .5 ? 'm' : 'f';
+  const b = { bot: 1, id, n: pickOne(BOT_NAMES) + ' [BOT]', x: 0, y: 0, f: 1, s, g, av: Math.floor(Math.random() * 12), e: s < .25 ? pickOne(BOT_WEAPONS.slice(0, 4)) : pickOne(BOT_WEAPONS), sk: Math.random() < .35 ? pickOne(SKIN) : '', inv: false, invT: 0, db: null, dbt: 0, hl: 0, mv: 0, sw: 0, aa: 0,
+    ai: { mode: 'close', mt: 0, dir: Math.random() < .5 ? 1 : -1, nextAtk: 0, wind: null, combo: 0, maxCombo: 2, skCd: 0, dodgeCd: 0, seenFx: 0, react: null, pause: 0, lat: rnd(.2, .6), wf: rnd(420, 760), dash: null, lastSt: 0, started: 0,
+      reactMs: 430 - s * 270, acc: .42 + s * .4, aggr: .35 + s * .35, dodgeP: .12 + s * .5, dmg: 26 + s * 22, range: 44 + s * 4, speed: 66 + s * 18 } };
+  DB[id] = { n: b.n, r, w: Math.round(rnd(8, 60)), l: Math.round(rnd(8, 60)) };
+  return b;
+}
+const ordStore = () => { if (!META.ord || typeof META.ord.o !== 'object') META.ord = { o: {} }; return META.ord.o; };
+const hasPrem = (acc, id) => !!(acc && AC[acc] && (AC[acc].prem || []).includes(id));
+const itemOf = k => { const [a, b] = String(k || '').split(':'); if (a === 'p' && PREM[b]) return { k, n: PREM[b].n, sen: PREM[b].sen }; if (a === 't' && TOPUP[b]) return { k, n: TOPUP[b].d + (TOPUP[b].bonus ? ' + ' + TOPUP[b].bonus + ' bonus' : '') + ' Diamond', sen: TOPUP[b].sen }; return null; };
+const ordPub = o => ({ id: o.id, k: o.k, n: o.n, sen: o.sen, cur: o.cur, st: o.st, ts: o.ts, url: PAY.link ? PAY.link.replace(/\{(ref|amount|sen|cur|user)\}/g, (_, x) => ({ ref: o.id, amount: (o.sen / 100).toFixed(2), sen: o.sen, cur: o.cur, user: o.acc }[x])) : '' });
+
 // ===== MAIL DINAMIS (dari panel admin) + KODE REDEEM =====
 const mailStore = () => { if (!META.mls || !Array.isArray(META.mls.l)) META.mls = { l: [] }; return META.mls.l; };
 const mailsFor = acc => mailStore().filter(x => (x.to === '*' || x.to === acc) && (!x.exp || x.exp > Date.now()))
@@ -124,7 +158,30 @@ const int = (v, lo, hi, d) => { v = Math.floor(+v); return Number.isFinite(v) ? 
 const num = (v, lo, hi, d) => { v = +v; return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : (d === undefined ? lo : d); };
 const uniq = (a, ok) => Array.isArray(a) ? [...new Set(a.filter(x => ok.includes(x)))] : [];
 // Mengembalikan save bersih, atau null bila ditolak (data tidak masuk akal / hasil ubahan).
-function cleanSave(s, owner) {
+let hubRef = null;
+// Webhook pembayaran: gateway mengirim JSON {ref, status:'paid', amount_sen|amount, txid} + header x-signature = HMAC-SHA256(body, PAY_SECRET) heksadesimal.
+function handlePay(req, res, hub) {
+  const out = (c, o) => { res.writeHead(c, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+  if (!PAY.secret) return out(503, { ok: 0, msg: 'webhook belum diaktifkan (PAY_SECRET kosong)' });
+  const chunks = []; let n = 0;
+  req.on('data', c => { n += c.length; if (n > 20000) { req.destroy(); return; } chunks.push(c); });
+  req.on('end', async () => {
+    try {
+      const raw = Buffer.concat(chunks), sig = String(req.headers['x-signature'] || '').toLowerCase();
+      const exp = crypto.createHmac('sha256', PAY.secret).update(raw).digest('hex');
+      if (!sig || sig.length !== exp.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(exp))) return out(401, { ok: 0, msg: 'tanda tangan salah' });
+      const b = JSON.parse(raw.toString('utf8')), o = ordStore()[String(b.ref || '')];
+      if (!o) return out(404, { ok: 0, msg: 'pesanan tidak ditemukan' });
+      if (!['paid', 'success', 'settlement'].includes(String(b.status || '').toLowerCase())) return out(200, { ok: 1, ignored: 1 });
+      const sen = b.amount_sen !== undefined ? Math.round(+b.amount_sen) : Math.round(parseFloat(b.amount) * 100);
+      if (!(sen >= o.sen)) return out(400, { ok: 0, msg: 'jumlah kurang dari harga pesanan' });
+      const r = await hub.ordPaid(o.id, 'webhook:' + String(b.txid || '').slice(0, 40));
+      out(r.ok ? 200 : 400, r);
+    } catch (e) { out(400, { ok: 0, msg: 'permintaan tidak valid' }); }
+  });
+}
+function cleanSave(s, owner, prem) {
+  const hasP = id => Array.isArray(prem) && prem.includes(id);
   try {
     if (!s || typeof s !== 'object' || typeof s.lvl !== 'number') return null;
     if (JSON.stringify(s).length > 30000) return null;
@@ -142,10 +199,11 @@ function cleanSave(s, owner) {
       lvl: int(s.lvl, 1, 300), xp: num(s.xp, 0, 1e7), hp: num(s.hp, 0, 1e5, 80), mp: num(s.mp, 0, 1e4, 38),
       gold: int(s.gold, 0, 5e6), dia: int(s.dia, 0, 1e5), frag: int(s.frag, 0, 1e5), pots: int(s.pots, 0, 99999),
       qi: int(s.qi, 0, 50), qc: int(s.qc, 0, 99),
-      eq: KAT.includes(s.eq) && (s.eq !== 'spidey' || evk >= EV.need || EV.test) && (s.eq !== 'punch' || lgc >= 20) ? s.eq : 'biasa', evk, gear, up, ea: idx(s.ea), eb: idx(s.eb),
+      eq: KAT.includes(s.eq) && (!PREMIDS.includes(s.eq) || hasP(s.eq)) && (s.eq !== 'spidey' || evk >= EV.need || EV.test) && (s.eq !== 'punch' || lgc >= 20) ? s.eq : 'biasa', evk, gear, up, ea: idx(s.ea), eb: idx(s.eb),
       sk: uniq(s.sk, SKIN), skin: SKIN.includes(s.skin) ? s.skin : undefined,
       ksk: uniq(s.ksk, KSKIDS).filter(x => !GSKIDS.includes(x) || gcn >= 1), gc: gcn, gp: int(s.gp, 0, 49), gw: (() => { const w = s.gw, r = {}; if (!w || typeof w !== 'object') return undefined; for (const [k0, v] of Object.entries(w).slice(0, 8)) { const k = clean(k0, 24); if (!k || !v || typeof v !== 'object') continue; const ws = [...new Set((Array.isArray(v.w) ? v.w : []).filter(x => Number.isInteger(x) && x >= 0 && x < 10))].slice(0, 10); r[k] = { n: Math.min(10, Math.max(ws.length, int(v.n, 0, 10))), w: ws }; } return r; })(), kse: (() => { const r = {}; if (s.kse && typeof s.kse === 'object') for (const w of KAT) { const v = s.kse[w]; if (typeof v === 'string' && KSKIDS.includes(v) && v.startsWith(w) && v.length === w.length + 1 && (!GSKIDS.includes(v) || gcn >= 1)) r[w] = v; } return r; })(),
-      dinv: uniq(s.dinv, KAT).filter(x => x !== 'spidey' || evk >= EV.need || EV.test).filter(x => x !== 'punch' || lgc >= 20), best: int(s.best, 0, 200),
+      dinv: uniq(s.dinv, KAT).filter(x => !PREMIDS.includes(x) || hasP(x)).filter(x => x !== 'spidey' || evk >= EV.need || EV.test).filter(x => x !== 'punch' || lgc >= 20), best: int(s.best, 0, 200),
+      em: uniq(s.em, EMO).filter(x => x !== 'pulse' || hasP('eclipse')), emq: (Array.isArray(s.emq) ? s.emq : []).filter((x, i, a) => EMO.includes(x) && (x !== 'pulse' || hasP('eclipse')) && a.indexOf(x) === i).slice(0, 4),
       ti: uniq(s.ti, TIT), title: TIT.includes(s.title) ? s.title : undefined,
       name: clean(s.name, 14) || undefined, rk: s.rk === undefined ? undefined : num(s.rk, 0, 5000, 1000),
       tb: owner ? int(s.tb, 0, 1) : 0, own: owner ? 1 : 0,
@@ -179,7 +237,7 @@ const MAXHP = 1000, SEC1 = 150, SEC2 = 180, MAXDMG = 600, MAXHEAL = 300;
 const FAILS = new Map(); // percobaan login gagal per username (di memori)
 
 class Hub {
-  constructor() { this.P = new Map(); this.q = []; this.q2 = []; this.IV = new Map(); this.M = new Set(); }
+  constructor() { this.P = new Map(); this.q = []; this.q2 = []; this.B = new Set(); this.IV = new Map(); this.M = new Set(); }
   send(p, m) { if (p && p.ws && p.ws.readyState === 1) p.ws.send(JSON.stringify(m)); }
   all(m, except) { for (const p of this.P.values()) if (p !== except) this.send(p, m); }
   rec(p) { return DB[p.id] || (DB[p.id] = { n: p.n, r: 1000, w: 0, l: 0 }); }
@@ -205,7 +263,7 @@ class Hub {
           // tampilan: senjata, skin, skin katana, gerak, arah bidik, gelar (divalidasi whitelist; hanya visual)
           const out = {
             t: 'st', id: p.id, x: p.x, y: p.y, f: m.f < 0 ? -1 : 1, n: p.n,
-            e: KAT.includes(m.e) ? m.e : 'biasa', sk: SKIN.includes(m.sk) ? m.sk : '',
+            e: this.okW(p, m.e) ? m.e : 'biasa', sk: SKIN.includes(m.sk) ? m.sk : '',
             ks: KSKIDS.includes(m.ks) ? m.ks : '', tt: topBest(p.acc) || (TIT.includes(m.tt) ? m.tt : ''), g: (p.acc && AC[p.acc] && AC[p.acc].g) || '', vf: (p.acc && AC[p.acc] && AC[p.acc].vf) ? 1 : 0,
             mv: m.mv ? 1 : 0, sw: m.sw ? 1 : 0, aa: num(m.aa, -4, 4, 0),
             pd: Array.isArray(m.pd) ? [num(m.pd[0], -1, 1, 0), num(m.pd[1], -1, 1, 0)] : undefined // arah bidik One Punch saat charge
@@ -220,6 +278,7 @@ class Hub {
       case 'queue': if (!(p.acc && AC[p.acc] && AC[p.acc].g)) { this.send(p, { t: 'pcancel' }); this.send(p, { t: 'gate' }); break; } this.queue(p, m.mode === 2 ? 2 : 1); break;
       case 'fr': this.fr(p, m).catch(() => this.send(p, { t: 'fr', err: 'Server gagal memproses. Coba lagi.' })); break;
       case 'inv': this.inv(p, m); break;
+      case 'shop': this.shop(p, m).catch(() => this.send(p, { t: 'shop', err: 'Server gagal memproses. Coba lagi.' })); break;
       case 'lap': this.lap(p, m); break; // tampilan karakter di lobi (senjata, skin, skin katana) — divalidasi whitelist
       case 'ps': p.busy = m.s ? 1 : 0; break; // sedang main mode solo (Classic/Survival/Story)
       case 'rdy': {
@@ -231,7 +290,7 @@ class Hub {
         const mt = p.m, n = Date.now();
         if (mt && n - (p.fxT || 0) > 30) {
           p.fxT = n;
-          const out = { t: 'fx', id: p.id, k: m.k ? 1 : 0, w: KAT.includes(m.w) ? m.w : 'biasa', i: int(m.i, -1, 9, -1), aa: num(m.aa, -4, 4, 0), f: m.f < 0 ? -1 : 1, ch: num(m.ch, 0, 1, 0), ks: KSKIDS.includes(m.ks) ? m.ks : '',
+          const out = { t: 'fx', id: p.id, k: m.k ? 1 : 0, w: this.okW(p, m.w) ? m.w : 'biasa', i: int(m.i, -1, 9, -1), aa: num(m.aa, -4, 4, 0), f: m.f < 0 ? -1 : 1, ch: num(m.ch, 0, 1, 0), ks: KSKIDS.includes(m.ks) ? m.ks : '',
             pn: Array.isArray(m.pn) ? [int(m.pn[0], 0, 1, 0), int(m.pn[1], 0, 1, 0), num(m.pn[2], -1, 1, 1), num(m.pn[3], -1, 1, 0), int(m.pn[4], 0, 1, 0)] : undefined }; // pn: kombo One Punch
           for (const x of mt.ps) if (x !== p) this.send(x, out);
         }
@@ -315,7 +374,7 @@ class Hub {
     try { await persist('acc', e); }
     catch (x) { a.ths = a.ths.filter(y => y !== h); TKI.delete(h); throw x; }
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), gac: gacPub(), save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), prem: a.prem || [], gac: gacPub(), save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
   async reg(p, m) {
     const e = String(m.e || '').trim().toLowerCase();
@@ -325,7 +384,7 @@ class Hub {
     if (AC[e]) return this.fail(p, 'Username sudah dipakai. Gunakan Masuk.');
     if (isOwner(e) && !(process.env.OWNER_PW && safeEq(m.pw, process.env.OWNER_PW))) return this.fail(p, 'Username ini dicadangkan.');
     let sv = JSON.parse(JSON.stringify(FRESH));
-    if (isOwner(e)) { sv = cleanSave(m.save, true); if (!sv) return this.fail(p, 'Data lokal tidak valid, tidak bisa dipautkan.'); }
+    if (isOwner(e)) { sv = cleanSave(m.save, true, []); if (!sv) return this.fail(p, 'Data lokal tidak valid, tidak bisa dipautkan.'); }
     const salt = crypto.randomBytes(16).toString('hex');
     AC[e] = { salt, hash: hashPw(m.pw, salt), pid: p.id, save: sv, at: Date.now(), ths: [], g: m.g, av: m.av };
     try { await this.session(p, e, !isOwner(e)); }
@@ -380,6 +439,9 @@ class Hub {
         return S({ sent: to === '*' ? 'semua pemain' : to });
       }
       case 'mdel': { const l = mailStore(), i = l.findIndex(x => x.id === m.mid); if (i >= 0) { l.splice(i, 1); mark('meta', 'mls'); for (const x of this.P.values()) if (x.acc) this.send(x, { t: 'mails', list: mailsFor(x.acc) }); } return S(); }
+      case 'ordlist': { const now = Date.now(); return S({ ords: Object.values(ordStore()).sort((x, y) => y.ts - x.ts).slice(0, 40).map(o => ({ id: o.id, acc: o.acc, n: o.n, sen: o.sen, cur: o.cur, st: o.st === 'pending' && now - o.ts > 864e5 ? 'expired' : o.st, ts: o.ts })) }); }
+      case 'ordpaid': { const r = await this.ordPaid(String(m.id || ''), 'admin:' + p.acc); if (!r.ok) return fail(r.msg); return S({ ordDone: 'Pesanan ' + m.id + (r.dup ? ' sudah lunas sebelumnya.' : ' ditandai lunas dan item diberikan.') }); }
+      case 'ordcancel': { const o = ordStore()[String(m.id || '')]; if (o && o.st === 'pending') { o.st = 'cancel'; await persist('meta', 'ord'); } return S({ ordDone: 'Pesanan dibatalkan.' }); }
       case 'gnew': {
         const sk = (Array.isArray(m.sk) ? m.sk : []).filter((x, i, a) => GSKIDS.includes(x) && a.indexOf(x) === i);
         if (!sk.length) return fail('Pilih minimal 1 skin.');
@@ -438,7 +500,7 @@ class Hub {
     const h = sha(t), e = TKI.get(h), a = e && AC[e];
     if (!a) return bad();
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), gac: gacPub(), top: topTitles(e), g: a.g || '', av: a.av | 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), prem: a.prem || [], gac: gacPub(), top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
 
   // ----- Simpan cloud -----
@@ -446,7 +508,7 @@ class Hub {
     const a = p.acc && AC[p.acc], now = Date.now();
     if (!a || a.pid !== p.id) return this.send(p, { t: 'svr', ok: 0, msg: 'Belum masuk akun.' });
     if (now - (p.svt || 0) < 2000) return; // terlalu sering: abaikan, klien akan mengulang
-    const s = cleanSave(m.save, isOwner(p.acc));
+    const s = cleanSave(m.save, isOwner(p.acc), a.prem);
     if (!s) { p.svt = now; return this.send(p, { t: 'svr', ok: 0, msg: 'Data ditolak server.' }); }
     const c = a.save;
     if (c) { s.stp = Math.max(s.stp || 0, c.stp || 0); s.end = (s.end || 0) | (c.end || 0); } // progres Story tidak boleh mundur
@@ -466,7 +528,7 @@ class Hub {
     let s = null;
     // Valid hanya jika: akun yang masuk = pemilik data, dan data benar-benar dikeluarkan server ini (tanda tangan cocok).
     if (a && b && typeof b === 'object' && b.u === p.acc && b.s && typeof b.s === 'object') {
-      const c = cleanSave(b.s, isOwner(p.acc));
+      const c = cleanSave(b.s, isOwner(p.acc), a.prem);
       if (c) {
         const sigOk = b.v === 2 && typeof b.sig === 'string' && typeof b.t === 'number' && b.t <= now + 60000 && safeEq(b.sig, sign({ v: 2, u: b.u, t: b.t, s: b.s }));
         const legacy = !b.sig && (a.snaps || []).includes(hashSave(b.s)); // ekspor lama
@@ -479,6 +541,53 @@ class Hub {
     a.save = s; a.at = now;
     await persist('acc', p.acc);
     this.send(p, { t: 'imp', ok: 1, save: s });
+  }
+
+  // ----- Premium shop & Top-up: pesanan, konfirmasi pembayaran, pemberian item -----
+  okW(p, id) { return KAT.includes(id) && (!PREMIDS.includes(id) || hasPrem(p.acc, id)); }
+  ordsOf(acc) { const now = Date.now(); return Object.values(ordStore()).filter(o => o.acc === acc && (o.st === 'paid' || now - o.ts < 864e5)).sort((a, b) => b.ts - a.ts).slice(0, 8).map(ordPub); }
+  catalog(p) {
+    return { cur: CUR, mode: PAY.mode, note: PAY.note, prem: Object.keys(PREM).map(k => ({ k: 'p:' + k, n: PREM[k].n, sen: PREM[k].sen, have: hasPrem(p.acc, PREM[k].grants[0]) ? 1 : 0 })),
+      top: Object.keys(TOPUP).map(k => ({ k: 't:' + k, d: TOPUP[k].d, bonus: TOPUP[k].bonus, sen: TOPUP[k].sen })) };
+  }
+  async shop(p, m) {
+    const a = p.acc && AC[p.acc], err = msg => this.send(p, { t: 'shop', err: msg });
+    if (!a) return err('Masuk akun dulu untuk berbelanja.');
+    if (m.a === 'cat') return this.send(p, { t: 'shop', cat: this.catalog(p), ords: this.ordsOf(p.acc) });
+    const st = ordStore();
+    if (m.a === 'status') { const o = st[String(m.id || '')]; if (!o || o.acc !== p.acc) return err('Pesanan tidak ditemukan.'); return this.send(p, { t: 'ord', o: ordPub(o) }); }
+    if (m.a === 'cancel') { const o = st[String(m.id || '')]; if (o && o.acc === p.acc && o.st === 'pending') { o.st = 'cancel'; await persist('meta', 'ord'); } return this.send(p, { t: 'shop', ords: this.ordsOf(p.acc) }); }
+    if (m.a === 'order') {
+      const it = itemOf(m.k); if (!it) return err('Item tidak dikenal.');
+      if (it.k.startsWith('p:') && hasPrem(p.acc, PREM[it.k.slice(2)].grants[0])) return err('Item ini sudah kamu miliki.');
+      const now = Date.now(), mine = Object.values(st).filter(o => o.acc === p.acc);
+      const ex = mine.find(o => o.k === it.k && o.st === 'pending' && now - o.ts < 36e5); // pesanan yang sama masih berjalan → pakai lagi
+      if (ex) return this.send(p, { t: 'ord', o: ordPub(ex), note: PAY.note });
+      if (mine.filter(o => now - o.ts < 36e5).length >= 6) return err('Terlalu banyak pesanan. Coba lagi nanti.');
+      const id = 'O' + now.toString(36).toUpperCase() + crypto.randomBytes(2).toString('hex').toUpperCase();
+      const o = { id, acc: p.acc, k: it.k, n: it.n, sen: it.sen, cur: CUR, st: 'pending', ts: now };
+      st[id] = o;
+      const ids = Object.keys(st); if (ids.length > 2500) for (const k of ids.slice(0, ids.length - 2000)) if (st[k].st !== 'pending') delete st[k];
+      await persist('meta', 'ord');
+      return this.send(p, { t: 'ord', o: ordPub(o), note: PAY.note });
+    }
+  }
+  // Dipanggil setelah pembayaran terverifikasi (webhook gateway atau konfirmasi admin). Idempoten: aman dipanggil berulang.
+  async ordPaid(id, ext) {
+    const o = ordStore()[id]; if (!o) return { ok: 0, msg: 'Pesanan tidak ditemukan.' };
+    if (o.st === 'paid') return { ok: 1, dup: 1 };
+    if (o.st !== 'pending' && o.st !== 'cancel' && o.st !== 'expired') return { ok: 0, msg: 'Status tidak valid.' };
+    const a = AC[o.acc]; if (!a) return { ok: 0, msg: 'Akun tidak ada.' };
+    o.st = 'paid'; o.paid = Date.now(); o.ext = String(ext || '').slice(0, 60);
+    const [kind, key] = o.k.split(':'), l = mailStore(), mid = 'op' + o.id;
+    if (kind === 'p') { a.prem = a.prem || []; for (const g of PREM[key].grants) if (!a.prem.includes(g)) a.prem.push(g); mark('acc', o.acc);
+      l.push({ id: mid, to: o.acc, t: 'Pembelian Berhasil', b: 'Terima kasih! ' + PREM[key].n + ' sudah aktif di akunmu (bundel senjata, Final Hit, dan animasi lobi/profil/after-match). Nomor pesanan ' + o.id + '.', ts: Date.now(), exp: 0, gold: 0, dia: 0 }); }
+    else { const tp = TOPUP[key]; l.push({ id: mid, to: o.acc, t: 'Top-Up Berhasil', b: 'Top-up ' + o.n + ' berhasil. Klaim hadiah di mail ini. Nomor pesanan ' + o.id + '.', ts: Date.now(), exp: 0, gold: 0, dia: tp.d + tp.bonus }); }
+    mark('meta', 'mls'); mark('meta', 'ord');
+    for (let i = 0; i < 3 && (dirty.meta.has('ord') || dirty.acc.has(o.acc) || dirty.meta.has('mls')); i++) await flush(true);
+    const x = this.byAcc(o.acc);
+    if (x) { this.send(x, { t: 'ord', o: ordPub(o), paid: 1 }); this.send(x, { t: 'mails', list: mailsFor(o.acc) }); if (kind === 'p') this.send(x, { t: 'prem', list: a.prem }); }
+    return { ok: 1 };
   }
 
   // ----- Rakan (daftar teman): tambah lewat username, permintaan harus diterima -----
@@ -536,7 +645,7 @@ class Hub {
 
   // ----- Lobi tim (maks. 2 pemain) lewat undangan; pemimpin = yang mengundang -----
   lap(p, m) {
-    const e = KAT.includes(m.e) ? m.e : 'biasa';
+    const e = this.okW(p, m.e) ? m.e : 'biasa';
     p.ap = { e, sk: SKIN.includes(m.sk) ? m.sk : '', ks: KSKIDS.includes(m.ks) && m.ks.startsWith(e) ? m.ks : '' };
     if (p.lb && p.lb.ms.length > 1) this.lobSend(p.lb);
   }
@@ -663,6 +772,102 @@ class Hub {
     }
   }
 
+  // ----- Bot: isi kursi kosong setelah 20 detik menunggu -----
+  botFill() {
+    const now = Date.now();
+    for (const p of [...this.q]) if (p.ws && now - p.qt >= BOT_WAIT) {
+      this.q = this.q.filter(x => x !== p);
+      this.send(p, { t: 'botq' });
+      this.launch([p, mkBot(this.rec(p).r)], 1);
+    }
+    const old = this.q2.find(tk => now - tk.t >= BOT_WAIT);
+    if (old) {
+      this.q2 = this.q2.filter(tk => tk !== old);
+      const hs = old.ps, avg = hs.reduce((a, x) => a + this.rec(x).r, 0) / hs.length;
+      const A = hs.length === 2 ? hs.slice() : [hs[0], mkBot(avg)], B = [mkBot(avg), mkBot(avg)];
+      for (const x of hs) this.send(x, { t: 'botq' });
+      this.launch(A.concat(B), 2, [0, 0, 1, 1]);
+    }
+  }
+  botSt(b, mt, now) {
+    if (now - b.ai.lastSt < 66) return; b.ai.lastSt = now;
+    const out = JSON.stringify({ t: 'st', id: b.id, x: Math.round(b.x * 10) / 10, y: Math.round(b.y * 10) / 10, f: b.f, n: b.n, e: b.e, sk: b.sk, ks: '', tt: '', g: b.g, vf: 0, mv: b.mv ? 1 : 0, sw: b.sw ? 1 : 0, aa: Math.round(b.aa * 100) / 100 });
+    for (const x of mt.ps) if (!x.bot && x.ws && x.ws.readyState === 1 && x.ws.bufferedAmount < 32768) x.ws.send(out);
+  }
+  botFx(b, mt, k, i) { const o = { t: 'fx', id: b.id, k, w: b.e, i, aa: Math.round(b.aa * 100) / 100, f: b.f, ch: 0, ks: '' }; for (const x of mt.ps) if (!x.bot) this.send(x, o); }
+  // damage dari bot ke korban (aturan sama dengan dmg(): kebal saat dash, statistik K/D/A, akhir ronde)
+  applyHit(mt, att, vic, d, now) {
+    if (mt.done || mt.hp[vic.id] <= 0 || mt.hp[att.id] <= 0) return;
+    if (vic.inv && now - vic.invT < 400) return;
+    const before = mt.hp[vic.id], real = Math.min(before, d);
+    mt.hp[vic.id] = Math.max(0, before - d);
+    if (real > 0) {
+      mt.sc[att.id].dmg += Math.round(real); (mt.hit[vic.id] = mt.hit[vic.id] || {})[att.id] = now;
+      if (mt.hp[vic.id] <= 0) { mt.sc[att.id].k++; mt.sc[vic.id].d++; for (const [aid, ts] of Object.entries(mt.hit[vic.id])) if (aid !== att.id && now - ts < 10000 && mt.tm[aid] === mt.tm[att.id] && mt.sc[aid]) mt.sc[aid].a++; }
+    }
+    this.hp(mt);
+    if (!mt.ps.some(x => mt.tm[x.id] !== mt.tm[att.id] && mt.hp[x.id] > 0)) this.end(mt, mt.tm[att.id]);
+  }
+  botTick() {
+    const now = Date.now();
+    for (const b of [...this.B]) {
+      const mt = b.m; if (!mt || mt.done) { this.B.delete(b); continue; }
+      const ai = b.ai, dt = Math.min(.12, (now - (b.lt || now)) / 1000); b.lt = now;
+      const live = mt.go && now >= mt.goAt && mt.hp[b.id] > 0;
+      if (b.inv && now - b.invT > 400) b.inv = false;
+      if (!live) { b.mv = 0; this.botSt(b, mt, now); continue; }
+      if (!ai.started) { ai.started = now; ai.pause = now + ai.reactMs * rnd(.8, 1.6); }
+      const foes = mt.ps.filter(x => mt.tm[x.id] !== mt.tm[b.id] && mt.hp[x.id] > 0);
+      if (!foes.length) continue;
+      let tg = foes[0], bd = 1e9; for (const f of foes) { const d = Math.hypot((f.x || 0) - b.x, (f.y || 0) - b.y) - (mt.hp[f.id] < 300 ? 25 : 0); if (d < bd) { bd = d; tg = f; } }
+      const dx = (tg.x || 0) - b.x, dy = (tg.y || 0) - b.y, dist = Math.hypot(dx, dy) || 1, nx = dx / dist, ny = dy / dist;
+      b.f = dx < 0 ? -1 : 1; b.aa = Math.atan2(dy, Math.max(Math.abs(dx), .001));
+      let vx = 0, vy = 0, sp = ai.speed;
+      // --- hindari: lawan baru menyerang → kadang dash menyamping (kebal sebentar), peluangnya naik menurut rank
+      if (tg.fxT && tg.fxT > ai.seenFx) { ai.seenFx = tg.fxT; if (dist < 74 && !ai.react && now > ai.dodgeCd && Math.random() < ai.dodgeP) ai.react = { at: now + ai.reactMs * rnd(.6, 1.2) }; }
+      if (ai.react && now >= ai.react.at) { ai.react = null; if (dist < 90 && !ai.wind) { const side = Math.random() < .6 ? ai.dir : -ai.dir; ai.dash = { vx: -ny * side * 150 - nx * 40, vy: nx * side * 150 - ny * 40, t: .26 }; b.inv = true; b.invT = now; ai.dodgeCd = now + rnd(1500, 2600); } }
+      if (ai.dash) { vx = ai.dash.vx; vy = ai.dash.vy; ai.dash.t -= dt; if (ai.dash.t <= 0) ai.dash = null; sp = 1; }
+      else if (now < ai.pause) { vx = vy = 0; }
+      else {
+        // --- ganti mode gerak secara berkala (tidak statis seperti AI biasa)
+        if (now >= ai.mt && !ai.wind) {
+          const r = Math.random(), lowHp = mt.hp[b.id] < 280 && ai.aggr < .6;
+          if (lowHp && r < .55) { ai.mode = 'kite'; ai.mt = now + rnd(900, 1700); }
+          else if (r < ai.aggr) { ai.mode = 'close'; ai.mt = now + rnd(700, 1600); }
+          else if (r < .85) { ai.mode = 'strafe'; ai.mt = now + rnd(500, 1300); ai.dir = Math.random() < .5 ? 1 : -1; }
+          else { ai.mode = 'kite'; ai.mt = now + rnd(500, 1000); }
+          if (Math.random() < .12 * (1 - b.s + .3)) ai.pause = now + rnd(180, 520); // ragu sebentar
+        }
+        const keep = ai.range - 6;
+        if (ai.mode === 'close') { const k = dist > keep ? 1 : .15; vx = nx * k; vy = ny * k; const w = Math.sin(now / ai.wf) * ai.lat; vx += -ny * w; vy += nx * w; }
+        else if (ai.mode === 'strafe') { vx = -ny * ai.dir * .9 + nx * (dist > keep + 14 ? .5 : dist < keep - 12 ? -.5 : 0); vy = nx * ai.dir * .9 + ny * (dist > keep + 14 ? .5 : dist < keep - 12 ? -.5 : 0); }
+        else { vx = -nx * .9; vy = -ny * .9; }
+        if (ai.wind) { vx *= .15; vy *= .15; }
+        if (dist < 27) { vx -= nx * 1.4; vy -= ny * 1.4; }
+      }
+      const vl = Math.hypot(vx, vy); b.mv = vl > .05 ? 1 : 0;
+      if (vl > .01) { const f = ai.dash ? 1 : sp / Math.max(1, vl > 1 ? vl : 1); b.x += vx * (ai.dash ? 1 : sp) * dt * (vl > 1 && !ai.dash ? 1 / vl : 1); b.y += vy * (ai.dash ? 1 : sp) * dt * (vl > 1 && !ai.dash ? 1 / vl : 1); }
+      b.x = Math.max(72, Math.min(264, b.x)); b.y = Math.max(mt.mode === 2 ? 100 : 118, Math.min(mt.mode === 2 ? 220 : 218, b.y));
+      // --- serangan: windup singkat lalu dampak (bisa meleset bila lawan bergerak/menjauh)
+      if (ai.wind) {
+        b.sw = 1;
+        if (now >= ai.wind.at) {
+          const w = ai.wind; ai.wind = null; b.sw = 0;
+          const d2 = Math.hypot((tg.x || 0) - b.x, (tg.y || 0) - b.y), reach = w.skill ? 118 : ai.range + 8;
+          const mov = tg.inv || (tg.bot ? tg.mv : (now - (tg.invT || 0) < 600));
+          if (d2 <= reach && Math.random() < Math.min(.97, ai.acc * (mov ? .86 : 1) + (w.skill ? .1 : 0))) this.applyHit(mt, b, tg, w.d * rnd(.88, 1.14), now);
+          ai.combo++; ai.nextAtk = now + (w.skill ? 700 : (470 - b.s * 130) * rnd(.9, 1.3));
+          if (ai.combo >= ai.maxCombo) { ai.combo = 0; ai.maxCombo = 2 + Math.floor(Math.random() * (2 + b.s * 2)); ai.mode = Math.random() < .6 ? 'strafe' : 'kite'; ai.mt = now + rnd(500, 1300) * (1.25 - b.s * .5); ai.dir = Math.random() < .5 ? 1 : -1; }
+        }
+      } else if (now >= ai.nextAtk && now > ai.pause) {
+        const inR = dist <= ai.range, skillOk = now >= ai.skCd && dist <= 108 && Math.random() < .35 + b.s * .35;
+        if (skillOk) { ai.wind = { at: now + 320, d: ai.dmg * 2.4, skill: 1 }; ai.skCd = now + rnd(9000, 6000 + 3000 * (1 - b.s)) ; this.botFx(b, mt, 1, Math.floor(Math.random() * 3)); }
+        else if (inR) { ai.wind = { at: now + 220 + (1 - b.s) * 90, d: ai.dmg }; this.botFx(b, mt, 0, -1); }
+        else if (dist < ai.range + 14 && Math.random() < (1 - b.s) * .02) { ai.wind = { at: now + 240, d: 0 }; this.botFx(b, mt, 0, -1); } // ayun meleset (pemain pemula)
+      }
+      this.botSt(b, mt, now);
+    }
+  }
   // ----- Pertandingan (1v1 atau 2v2) -----
   launch(ps, mode, teams) {
     const tm = {}, slot = {}, n = [0, 0];
@@ -671,7 +876,8 @@ class Hub {
     for (const x of ps) mt.sc[x.id] = { k: 0, d: 0, a: 0, dmg: 0 };
     for (const x of ps) { mt.hp[x.id] = MAXHP; x.m = mt; x.db = null; x.dbt = 0; x.hl = 0; }
     this.M.add(mt);
-    const info = x => ({ id: x.id, n: x.n, r: this.rec(x).r, side: tm[x.id], slot: slot[x.id] });
+    for (const x of ps) if (x.bot) { mt.rd.add(x.id); const two = mode === 2, T = 16; x.x = (tm[x.id] ? 14 : 6) * T + 8; x.y = (two ? (slot[x.id] ? 12 : 8) : 10) * T + 8; x.f = tm[x.id] ? -1 : 1; x.ai.started = 0; this.B.add(x); }
+    const info = x => ({ id: x.id, n: x.n, r: this.rec(x).r, side: tm[x.id], slot: slot[x.id], bot: x.bot ? 1 : 0 });
     for (const x of ps) this.send(x, { t: 'match', mode, sec: mt.t, side: tm[x.id], slot: slot[x.id], ps: ps.filter(y => y !== x).map(y => Object.assign(info(y), { al: tm[y.id] === tm[x.id] ? 1 : 0 })) });
     return mt;
   }
@@ -738,14 +944,15 @@ class Hub {
     if (wt === 0 || wt === 1) {
       const W = mt.ps.filter(x => mt.tm[x.id] === wt), L = mt.ps.filter(x => mt.tm[x.id] !== wt);
       const avg = t => t.reduce((a, x) => a + this.rec(x).r, 0) / t.length;
-      const E = 1 / (1 + Math.pow(10, (avg(L) - avg(W)) / 400)), d = Math.max(1, Math.round(32 * (1 - E)));
-      for (const x of W) { const r = this.rec(x); r.r += d; r.w++; delta[x.id] = d; this.stat(x, r, 1); mark('rat', x.id); }
-      for (const x of L) { const r = this.rec(x), dl = Math.min(d, r.r); r.r -= dl; r.l++; delta[x.id] = -dl; this.stat(x, r, 0); mark('rat', x.id); }
+      const hasBot = mt.ps.some(x => x.bot), E = 1 / (1 + Math.pow(10, (avg(L) - avg(W)) / 400)), d = Math.max(1, Math.round(32 * (1 - E) * (hasBot ? BOT_ELO : 1)));
+      for (const x of W) { if (x.bot) { delta[x.id] = 0; continue; } const r = this.rec(x); r.r += d; r.w++; delta[x.id] = d; this.stat(x, r, 1); mark('rat', x.id); }
+      for (const x of L) { if (x.bot) { delta[x.id] = 0; continue; } const r = this.rec(x), dl = Math.min(d, r.r); r.r -= dl; r.l++; delta[x.id] = -dl; this.stat(x, r, 0); mark('rat', x.id); }
     }
     const ws = (wt === 0 || wt === 1) ? mt.ps.filter(x => mt.tm[x.id] === wt).map(x => x.id) : [];
-    const sc = mt.ps.map(x => { const a = (x.acc && AC[x.acc]) || {}, s = mt.sc[x.id] || { k: 0, d: 0, a: 0, dmg: 0 }; return { id: x.id, n: x.n, side: mt.tm[x.id], g: a.g || 'm', av: a.av | 0, r: this.rec(x).r, dl: delta[x.id] || 0, k: s.k, d: s.d, a: s.a, dmg: s.dmg }; });
+    const sc = mt.ps.map(x => { const a = x.bot ? { g: x.g, av: x.av } : (x.acc && AC[x.acc]) || {}, s = mt.sc[x.id] || { k: 0, d: 0, a: 0, dmg: 0 }; return { bot: x.bot ? 1 : 0, id: x.id, n: x.n, side: mt.tm[x.id], g: a.g || 'm', av: a.av | 0, r: this.rec(x).r, dl: delta[x.id] || 0, k: s.k, d: s.d, a: s.a, dmg: s.dmg }; });
     const tsc = [0, 0]; for (const s of sc) tsc[s.side] += s.k;
-    for (const x of mt.ps) { const r = this.rec(x); this.send(x, { t: 'end', mode: mt.mode, w: ws[0] || null, ws, r: r.r, d: delta[x.id] || 0, wins: r.w, losses: r.l, sc, tsc, side: mt.tm[x.id] }); }
+    for (const x of mt.ps) if (x.bot) { this.B.delete(x); x.m = null; }
+    for (const x of mt.ps) { if (x.bot) { delete DB[x.id]; continue; } const r = this.rec(x); this.send(x, { t: 'end', mode: mt.mode, w: ws[0] || null, ws, r: r.r, d: delta[x.id] || 0, wins: r.w, losses: r.l, sc, tsc, side: mt.tm[x.id] }); }
   }
   tick() {
     this.tc = (this.tc || 0) + 1;
@@ -755,7 +962,7 @@ class Hub {
       flush(true).catch(() => {});
       for (const x of this.P.values()) { this.send(x, { t: 'top', top: topTitles(x.acc), reset: 1 }); const r = this.rec(x); this.send(x, { t: 'me', r: r.r, w: r.w, l: r.l }); }
     }
-    this.pair(); this.pair2();
+    this.pair(); this.pair2(); this.botFill();
     for (const mt of [...this.M]) {
       if (!mt.go) { if (++mt.wt > 20) this.end(mt, null); continue; }
       if (--mt.t > 0) continue;
@@ -919,12 +1126,14 @@ if (require.main === module) {
       if (req.url === '/health') { res.end('ok ' + (READY ? ST.kind : 'starting')); return; }
       if (req.url.split('?')[0] === '/sw.js') { res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' }); res.end(SW_JS); return; }
       if (req.method === 'POST' && req.url.split('?')[0] === '/report') { handleReport(req, res); return; }
+      if (req.method === 'POST' && req.url.split('?')[0] === '/pay/webhook') { handlePay(req, res, hubRef); return; }
       if (req.url.split('?')[0] === '/mail.json') { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(MAILS)); return; }
       sendIndex(req, res);
     });
     const wss = new WebSocketServer({ server, maxPayload: 65536, perMessageDeflate: false });
-    const hub = new Hub();
+    const hub = new Hub(); hubRef = hub;
     setInterval(() => { if (READY) hub.tick(); }, 1000);
+    setInterval(() => { if (READY && hub.B.size) { try { hub.botTick(); } catch (e) { console.error('bot', e); } } }, 50);
     // Pantau keterlambatan event-loop (server yang sibuk/di-throttle menambah ping). Dikirim ke klien di pong.
     let LAG = 0, LAGMAX = 0, lagT = Date.now();
     setInterval(() => { const n = Date.now(), d = Math.max(0, n - lagT - 250); lagT = n; LAG = d; LAGMAX = Math.max(LAGMAX * 0.9, d); if (d > 150) console.warn('Event-loop lag ' + d + 'ms'); }, 250).unref();
