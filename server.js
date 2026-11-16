@@ -92,6 +92,10 @@ for (const k in PREM) if (PRICES[k] > 0) PREM[k].sen = Math.round(PRICES[k]);
 for (const k in TOPUP) if (PRICES[k] > 0) TOPUP[k].sen = Math.round(PRICES[k]);
 const PREMIDS = Object.values(PREM).flatMap(x => x.grants);
 const EMO = ['dop', 'pulse']; // 'dop' = Day of Playing (kedai, fragment) · 'pulse' = emote paket SSS+ (hanya pemilik Eclipse Reaver) // emote dibeli di shop dengan fragment (harga ada di klien)
+// Item yang boleh dibagikan admin lewat mail (diklaim pemain) — id divalidasi whitelist; item premium diberikan lewat 'grant'.
+// Format: w:<senjata> c:<skin karakter> k:<skin katana> t:<gelar> e:<emote>
+const ITEMTYPES = { w: id => KAT.includes(id) && !PREMIDS.includes(id) && id !== 'biasa', c: id => SKIN.includes(id), k: id => KSKIDS.includes(id) && !GSKIDS.includes(id), t: id => TIT.includes(id), e: id => EMO.includes(id) && id !== 'pulse' };
+const cleanItems = a => (Array.isArray(a) ? a : []).map(String).filter((s, i, arr) => { const [k, id] = s.split(':'); return ITEMTYPES[k] && ITEMTYPES[k](id) && arr.indexOf(s) === i; }).slice(0, 8);
 const PAY = { mode: process.env.PAY_MODE || 'manual', link: process.env.PAY_LINK || '', note: process.env.PAY_NOTE || 'Selesaikan pembayaran sesuai petunjuk admin dan cantumkan nomor referensi. Item masuk otomatis setelah pembayaran dikonfirmasi.', secret: process.env.PAY_SECRET || '' };
 
 // ===== MATCHMAKING 20 DETIK + BOT RANKED (bermain seperti manusia sesuai rank) =====
@@ -118,7 +122,7 @@ const ordPub = o => ({ id: o.id, k: o.k, n: o.n, sen: o.sen, cur: o.cur, st: o.s
 // ===== MAIL DINAMIS (dari panel admin) + KODE REDEEM =====
 const mailStore = () => { if (!META.mls || !Array.isArray(META.mls.l)) META.mls = { l: [] }; return META.mls.l; };
 const mailsFor = acc => mailStore().filter(x => (x.to === '*' || x.to === acc) && (!x.exp || x.exp > Date.now()))
-  .map(x => ({ id: x.id, t: x.t, b: x.b, ts: x.ts, exp: x.exp || 0, gold: x.gold || 0, dia: x.dia || 0, k: 'dev' }));
+  .map(x => ({ id: x.id, t: x.t, b: x.b, ts: x.ts, exp: x.exp || 0, gold: x.gold || 0, dia: x.dia || 0, fr: x.fr || 0, it: x.it || [], k: 'dev' }));
 // ===== EVENT GACHA (roda 10 putaran, skin terjamin) — diatur dari panel admin =====
 // Tiap event: id, n (nama), sk (id skin), st/en (UTC ms), rd (putaran event: naik tiap "rerun" → progres roda semua pemain mulai ulang), on (1/0), pr (harga tiap putaran).
 const GPR = [9, 18, 25, 55, 80, 190, 240, 340, 500, 620]; // harga putaran dalam Diamond (satu-satunya pemakaian diamond)
@@ -374,7 +378,7 @@ class Hub {
     try { await persist('acc', e); }
     catch (x) { a.ths = a.ths.filter(y => y !== h); TKI.delete(h); throw x; }
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), prem: a.prem || [], gac: gacPub(), save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), prem: a.prem || [], ct: a.at || 0, gac: gacPub(), save: full ? a.save : undefined, top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
   async reg(p, m) {
     const e = String(m.e || '').trim().toLowerCase();
@@ -433,10 +437,24 @@ class Hub {
         if (!t || !b) return fail('Judul dan isi mail wajib diisi.');
         if (to !== '*' && !AC[to]) return fail('Username tujuan tidak ditemukan.');
         const l = mailStore(), id = 'a' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex');
-        l.push({ id, to, t, b, ts: Date.now(), exp: clampI(m.days, 0, 3650) ? Date.now() + clampI(m.days, 0, 3650) * 864e5 : 0, gold: clampI(m.g, 0, 5e5), dia: clampI(m.d, 0, 1e4) });
+        l.push({ id, to, t, b, ts: Date.now(), exp: clampI(m.days, 0, 3650) ? Date.now() + clampI(m.days, 0, 3650) * 864e5 : 0, gold: clampI(m.g, 0, 5e5), dia: clampI(m.d, 0, 1e4), fr: clampI(m.f, 0, 5000), it: cleanItems(m.it) });
         while (l.length > 300) l.shift(); mark('meta', 'mls');
         for (const x of this.P.values()) if (x.acc && (to === '*' || x.acc === to)) this.send(x, { t: 'mails', list: mailsFor(x.acc) });
         return S({ sent: to === '*' ? 'semua pemain' : to });
+      }
+      // Item premium (mis. Eclipse Reaver) langsung aktif di akun tujuan — tanpa klaim, tanpa pembayaran. Hanya satu akun per perintah.
+      case 'grant': case 'revoke': {
+        const to = String(m.to || '').trim().toLowerCase(), key = String(m.item || '').replace(/^p:/, ''), a2 = AC[to];
+        if (!a2) return fail('Username tujuan tidak ditemukan.');
+        if (!PREM[key]) return fail('Item premium tidak dikenal.');
+        a2.prem = a2.prem || [];
+        const ids = PREM[key].grants;
+        if (m.a === 'grant') { for (const g of ids) if (!a2.prem.includes(g)) a2.prem.push(g); }
+        else a2.prem = a2.prem.filter(g => !ids.includes(g));
+        mark('acc', to);
+        if (m.a === 'grant') { mailStore().push({ id: 'pg' + Date.now().toString(36) + crypto.randomBytes(2).toString('hex'), to, t: 'Hadiah Admin', b: PREM[key].n + ' telah diberikan ke akunmu oleh admin. Selamat menikmati!', ts: Date.now(), exp: 0, gold: 0, dia: 0 }); mark('meta', 'mls'); }
+        const x = this.byAcc(to); if (x) { this.send(x, { t: 'prem', list: a2.prem }); this.send(x, { t: 'mails', list: mailsFor(to) }); }
+        return S({ granted: m.a === 'grant' ? PREM[key].n + ' → @' + to : 'Hak ' + PREM[key].n + ' dicabut dari @' + to });
       }
       case 'mdel': { const l = mailStore(), i = l.findIndex(x => x.id === m.mid); if (i >= 0) { l.splice(i, 1); mark('meta', 'mls'); for (const x of this.P.values()) if (x.acc) this.send(x, { t: 'mails', list: mailsFor(x.acc) }); } return S(); }
       case 'ordlist': { const now = Date.now(); return S({ ords: Object.values(ordStore()).sort((x, y) => y.ts - x.ts).slice(0, 40).map(o => ({ id: o.id, acc: o.acc, n: o.n, sen: o.sen, cur: o.cur, st: o.st === 'pending' && now - o.ts > 864e5 ? 'expired' : o.st, ts: o.ts })) }); }
@@ -500,7 +518,7 @@ class Hub {
     const h = sha(t), e = TKI.get(h), a = e && AC[e];
     if (!a) return bad();
     p.acc = e; p.th = h;
-    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), prem: a.prem || [], gac: gacPub(), top: topTitles(e), g: a.g || '', av: a.av | 0 });
+    this.send(p, { t: 'acc', ok: 1, e, tok: t, pid: a.pid, own: isOwner(e) ? 1 : 0, vf: a.vf ? 1 : 0, ml: mailsFor(e), prem: a.prem || [], ct: a.at || 0, gac: gacPub(), top: topTitles(e), g: a.g || '', av: a.av | 0 });
   }
 
   // ----- Simpan cloud -----
